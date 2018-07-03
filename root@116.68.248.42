@@ -1,0 +1,4268 @@
+"use strict";
+const get_socket = require('socket.io')
+const {
+    route, 
+    view,
+    run,
+    api,
+    verifyToken
+} = require('./config/server')
+const request = require('request').defaults({encoding:null})
+const { hostname } = require('os')
+const { bcrypt, bdecrypt } = require('./config/validation')
+const jwt           = require('jsonwebtoken')
+const {  con }      = require('./config/database')
+const formidable    = require('formidable')
+const { secreet }   = require('./env')
+const fs            = require('fs')
+const datetime      = require('node-datetime') 
+const moment = require('moment')
+var nodemailer      = require('nodemailer');
+var LocalStorage    = require('node-localstorage').LocalStorage
+var localStorage    = new LocalStorage('./scratch')
+var FCM = require('fcm-node');
+var serverKey = 'AAAA_hkq4Lc:APA91bFJ4lhwJ7Y8eGnKw0j5nhqLwyH7I8cUvQXrmtuf11fsW10nVILyTVfYyAWl0968Kz3z1xT4kI5yJVyuWfF4ckn_ki_DFXxh3SKYx8N1q0cDyDFX5TkS0LnToLjkcQaStWhn9su_'; //put your server key here
+var fcm = new FCM(serverKey);
+
+
+
+// setting email service
+var transporter = nodemailer.createTransport({
+    service:'gmail',
+    auth:{
+        user:'zulfikralahmudin@gmail.com',
+        pass:'Billgates1996'
+    }
+})
+
+var randomColor = function(){
+    let color = [
+        'F44336','B71C1C',
+        'FF5252','E91E63',
+        'EC407A','D81B60',
+        '880E4F','9C27B0',
+        '4A148C','E040FB',
+        '673AB7','512DA8',
+        '3F51B5','3F51B5',
+        '1A237E','2196F3',
+        '03A9F4','0277BD',
+        '00BCD4','00838F',
+        '009688','00897B',
+        '4CAF50','2E7D32',
+        '8BC34A','8BC34A',
+        'CDDC39','C0CA33',
+        'FFEB3B','F9A825',
+        'FFC107','FFA000',
+        'FF9800','FF9800',
+        'FFFF00','FFD740',
+        'FF5722','FF7043',
+        '795548','795548',
+        '9E9E9E','9E9E9E',
+        '607D8B','546E7A'
+    ]
+    let random =  Math.floor((Math.random() * 44 ) + 1)
+    
+    return color[random]
+}
+
+// AUTH
+api("/register",function (req,res) {
+    if (req.methods == 'GET') {
+       return res.json(200,{
+           "Authorization":"unauthorization"
+       });
+    }
+    if (req.methods == 'POST') {
+        req.on('data',function(data){
+
+            let json = qs.parse(data.toString())
+            let random_number = Math.floor((Math.random() * 50000 ) + 10000);
+            
+            let form_register = {
+                email:json.email,
+                no_telp:json.no_telp,
+                username:json.username,
+                password:bcrypt(json.password),
+                role:'public',
+                is_active:0,
+                activate_code:random_number
+            }
+            let sql_insert_users = `INSERT INTO users SET ?`
+
+            function insertUsers()
+            {
+                var users = new Promise(function(resolve,reject){
+                    con.query(sql_insert_users, form_register, function(err,result){
+                        if(err){
+                            
+                         console.log(err);
+                         reject(err)
+                        }
+
+                        resolve(result)
+                        
+                    })
+                })
+                return users
+            }
+
+            function selectData()
+            {
+                let sql = `SELECT * FROM users ORDER BY id DESC LIMIT 1`
+                var users = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result[0])
+                    })
+                })
+                return users
+            }
+
+            function inserDataToProfile(args){
+                let data = {
+                    first_name:json.first_name,
+                    last_name:json.last_name,
+                    user_id:args
+                }
+
+                let sql = `INSERT INTO profile SET ?`
+                let insert = new Promise(function(resolve,reject){
+                    con.query(sql,data,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result)
+                    })
+                })
+            }
+
+            async function execute(){
+                let insert_users = await insertUsers()
+                let select_data = await selectData()
+                let insert_data_to_profile = await inserDataToProfile(select_data.id)                
+                return select_data
+            }
+
+            execute()
+                .then(function (data) {
+                  
+                    var mailOptions = {
+                        from: 'linkez',
+                        to: `${data.email}`,
+                        subject: 'Aktifasi Email anda',
+                        text: `activation code ${data.activate_code}`
+                      };
+
+                      transporter.sendMail(mailOptions, function(error, info){
+                        if (error) {
+                          console.log(error);
+                        } else {
+                          console.log('Email sent: ' + info.response);
+                        }
+                      });
+                      return   res.json(200,{
+                          status:200,
+                          success:true,
+                      })
+                })
+                .catch(function (err) {
+                    console.error(err);  
+                    return  res.json(200,{
+                        status:200,
+                        success:false,
+                        message:err.sqlMessage
+                    })
+                })
+        })
+    }
+    
+})
+api("/activate",function(req,res){
+    if (req.methods == 'POST') {
+        req.on('data',function(data){
+            let json = qs.parse(data.toString())
+            let activate = parseInt(json.activate)
+            
+            function getData()
+            {
+                let sql = `SELECT * FROM users WHERE activate_code=${activate} AND is_active=0 LIMIT 1`
+                let get_data = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+
+                        if (result == undefined || result[0] == null) {
+                            reject('maaf user tidak ada')
+                        }
+                        resolve(result)
+                        
+                    })
+                })
+                return get_data
+            }
+
+            function activateData(arg){
+                let sql = `UPDATE users SET is_active=1, activate_code='' WHERE id=${arg}`
+                let activate_data = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result)
+                    })  
+                })
+                return activate_data
+            }
+
+            async function execute(){
+                let get_data = await getData()
+                if (get_data[0] != undefined) {     
+                    let activate_data = await activateData(get_data[0].id)
+                }
+                
+                return get_data[0]
+            }
+
+            execute()
+                .then(function(data){
+                    if (data != undefined ) {
+                        return res.json(200,{
+                            status:200,
+                            success:true
+                        })
+                    }
+                    return res.json(200,{
+                        status:200,
+                        success:false,
+                        message:'maaf kode aktifasi anda salah'
+                    })
+                })
+                .catch(function(err){
+                    console.log(err);
+                    return res.json(200,{
+                        status:200,
+                        success:false,
+                        message:err
+                    })
+                })
+                
+        })
+    }
+})
+api("/login",function(req,res){
+    if (req.method == 'GET') {
+        return res.json(200,{
+            authorization:"unauthorization"
+        })
+    }
+
+    if (req.methods == 'POST') {
+        req.on('data',function(data){
+            let json = qs.parse(data.toString());            
+            let username = json.username
+            let password = json.password
+            
+            function selectData()
+            {
+                let sql = `SELECT * FROM users WHERE username = '${username}' OR no_telp = '${username}' OR email = '${username}'`;
+                let select_data = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                                            
+                        resolve(result)
+                    })
+                })
+
+                return select_data
+            }
+
+            async function exec()
+            {
+                let select_data = await selectData()
+                let message = {}
+                console.log();
+                
+                if (select_data[0] == undefined ) {
+                     return message = {
+                        message:'maaf password atau username anda salah',
+                        status:401,
+                        success:false
+                    }
+                }
+                
+                let chipper_text = select_data[0].password 
+                let plain_text = bdecrypt(chipper_text)
+         
+                if(plain_text != password){
+                    return message = {
+                        message:'maaf password atau username anda salah',
+                        status:401,
+                        success:false
+                    }
+                }
+
+                return message = {
+                    token:jwt.sign({user:select_data},secreet),
+                    status:200,
+                    role:select_data[0].role,
+                    is_active:select_data[0].is_active,
+                    success:true,
+                    user_id:select_data[0].id,
+                    username:select_data[0].username,
+                    is_selected_category:select_data[0].is_selected_category
+
+                }
+            }
+
+            return exec()
+             .then(function(data){
+                res.json(200,data)
+             })
+             .catch(function(err){
+                 console.log(err);
+                 
+             })
+            
+        })
+    }
+})
+// labeling
+api("/label",function(req,res){
+    verifyToken(req,res,function(token){
+        var decode = jwt.verify(token,secreet);
+        if(req.methods == 'POST')
+        {
+            req.on('data',function(data){
+                var json = qs.parse(data.toString())
+                function insertLabel()
+                {
+                    let insert = {
+                        user_id:json.user_id,
+                        figure_id:decode.user[0].id,
+                        key_overal:Math.floor((Math.random() * 5000000 ) + 1000000)
+                    }
+                    let sql = `INSERT INTO asisten_relation SET ?`
+                    con.query(sql,insert,function(err,result){
+                        if(err) console.log(err);
+                        
+                    })
+                }
+
+                function changeRole()
+                {
+                    let insert = {
+                        role:'asisten'
+                    }
+                    let sql = `UPDATE users SET ? WHERE id=${json.user_id}`
+                    con.query(sql,insert,function(err,result){
+                        if(err) console.log(err);
+                        
+                    })
+                }
+
+                function execute()
+                {
+                    insertLabel()
+                    changeRole()
+                }
+
+                execute()
+
+                res.json(200,{
+                    succes:true,
+                    status:200
+                })
+            })
+           
+        }
+        if(req.methods == 'GET')
+        {
+            let sql = `SELECT username,users.id, IF(asisten_relation.user_id IS NULL,0,asisten_relation.user_id) AS label  FROM users  LEFT JOIN asisten_relation ON users.id = asisten_relation.figure_id WHERE users.id=${decode.user[0].id}`
+
+            con.query(sql,function(err,result){
+                if(err) console.log(err);
+                res.json(200,result)
+            })
+
+        }
+        if(req.methods == 'PUT')
+        {
+            req.on('data',function(data){
+                var json = qs.parse(data.toString())
+                let sql = `DELETE FROM asisten_relation WHERE user_id=${json.user_id} AND figure_id=${decode.user[0].id}`
+                con.query(sql,function(err,result){
+                    
+                })
+                let insert = {
+                    role:'public'
+                }
+
+                let sql_update = `UPDATE users SET ? WHERE id=${json.user_id}`
+                con.query(sql_update,insert,function(err,result){
+                    if(err) console.log(err);
+                    return res.json(200,{
+                        succes:true,
+                        status:200
+                    })
+                })
+               
+                
+            })
+
+            
+        }
+    })
+})
+// referal code
+api("/referal",function(req,res){
+    verifyToken(req,res,function(token){
+        var decode = jwt.verify(token,secreet);
+        if(req.methods == 'POST')
+        {
+            req.on('data',function(data){
+                let json = qs.parse(data.toString());
+
+                function selectUserByCode()
+                {
+                    let sql = `SELECT * FROM asisten_relation WHERE key_overal=${json.referal_code}`
+
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,function(err,result){
+                            if(err) console.log(err);                          
+                            resolve(result)
+                        })
+                    })
+
+                    return sql_promise
+                }
+
+                function insertRelation(...user)
+                {
+                    let insert = {
+                        user_id:user[0],
+                        figure_id:user[1],
+                        asisten_id:user[2]
+                    }
+                    let sql = `INSERT INTO figure_relation SET ?`
+                    con.query(sql,insert,function(err,result){
+                        if(err) console.log(err);
+                    })
+
+                    return
+                }
+
+                function checkRelation(...user)
+                {
+                    let sql = `SELECT * FROM figure_relation WHERE user_id=${user[0]} AND asisten_id=${user[1]}`
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,function(err,result){
+                            if(err) console.log(err);
+                            
+                            if(result[0] != undefined)
+                            {
+                                return  resolve(true)
+                            }
+
+                            return resolve(false)
+                        })
+                    })
+                }
+
+                async function execute()
+                {
+                    let data
+                    let select_user = await selectUserByCode()
+                    if(await checkRelation(decode.user[0].id,select_user[0].user_id)){
+                        return  data = {
+                            status:401,
+                            message:'Maaf anda memasukan referal kode untuk figure ini',
+                            success:false
+                        }
+                    }
+
+                    await insertRelation(decode.user[0].id,select_user[0].figure_id,select_user[0].user_id)
+                    
+                    return data =  {
+                        status:200,
+                       message: 'Anda telah berhasil mengaktifkan referal kode',
+                       success:true
+                    }
+                }
+
+                execute()
+                    .then(function(data){
+                        return res.json(200,data)
+                    })
+            })
+
+        }
+        if(req.methods == 'GET')
+        {
+            
+        }
+    })
+})
+// category
+api("/category",function(req,res){
+    if (req.methods == 'GET') {
+        verifyToken(req,res,function(token){
+            let sql = `SELECT id,title,color FROM category WHERE count >= 1000`;
+            con.query(sql,function(err,result){
+                if(err) console.log(err);
+                return res.json(200,result)
+            })
+        })
+    }
+
+    if(req.methods == 'POST'){
+        verifyToken(req,res,function(token){
+            req.on('data',function(data){
+                let json = JSON.parse(data);
+                let sql = `UPDATE users SET is_selected_category = 1 WHERE id=${json[0].user_id}`;
+                con.query(sql,function(err,result){
+                    if(err) console.err(err);
+                    return
+                })
+                for (const key in json) {
+                    con.query(`INSERT INTO choose_category (user_id,category_id) VALUES(${json[key].user_id},${json[key].category_id})`,function(err,result){
+                        if(err){
+                         console.log(err);
+                            return res.json(200,{
+                                status:401,
+                                success:true,
+                                message:err.sqlMessage
+                            })
+                        }
+                        return res.json(200,{
+                            status:200,
+                            success:true
+                        })
+                    })
+                }
+            })
+        })
+    }
+})
+// profile
+api("/store",function(){
+    if (req.methods == 'POST') {
+        req.on('data',function(data){
+            res.end(data.toString())
+        })
+    }
+})
+api("/timeline/comments/:id",function(req,res){
+    if(req.methods == 'GET')
+    {
+        let sql = `SELECT comments.id,timeline_id,created_at,comments,user_id, users.username, comments.comments_id  FROM comments INNER JOIN users ON comments.user_id = users.id WHERE timeline_id=${req.params.id} AND comments_id IS NULL`
+        con.query(sql,function(err,result){
+            if(err) console.log(err);
+            let dt 
+            for(let datas in result){
+                dt = moment(result[datas].created_at,'Y-m-d H:M:S').fromNow()
+                result[datas].created_at = dt
+            }
+            res.json(200,result)
+        })
+    }
+})
+api("/timeline",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode = jwt.verify(token,secreet)
+        if(req.methods == 'GET'){
+            
+            function getLikes()
+            {
+                let sql = `SELECT * FROM likes WHERE user_id=${decode.user[0].id}`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+            function getTimeline()
+            {
+                let decode = jwt.verify(token,secreet)
+                let sql = `SELECT IF(likes.likes IS NULL, 0,likes.likes) AS likes, IF(cm.comm IS NULL, 0,cm.comm) AS comments_total, IF(lks.c_id IS NULL,0,lks.c_id) AS likes_total ,timeline.user_id, timeline.is_photo, timeline.title, timeline.description, timeline.created_at, timeline.id, users.username FROM timeline INNER JOIN users ON timeline.user_id = users.id LEFT JOIN likes ON timeline.id = likes.timeline_id AND ${decode.user[0].id} = likes.user_id LEFT JOIN (SELECT id,timeline_id,COUNT(id) AS comm FROM comments WHERE comments_id IS NULL GROUP BY timeline_id ) AS cm ON timeline.id = cm.timeline_id LEFT JOIN (SELECT id,timeline_id, COUNT(id) AS c_id FROM likes GROUP BY timeline_id ) AS lks ON timeline.id = lks.timeline_id  WHERE timeline.user_id = ${decode.user[0].id}
+
+                UNION
+                
+                SELECT  IF(likes.likes IS NULL, 0,likes.likes) AS likes, IF(cm.comm IS NULL, 0,cm.comm) AS comments_total,IF(lks.c_id IS NULL,0,lks.c_id) AS likes_total, timeline.user_id, timeline.is_photo, timeline.title, timeline.description, timeline.created_at, timeline.id, users.username FROM timeline INNER JOIN users ON timeline.user_id = users.id LEFT JOIN likes ON timeline.id = likes.timeline_id AND ${decode.user[0].id} = likes.user_id LEFT JOIN (SELECT id,timeline_id,COUNT(id) AS comm FROM comments WHERE comments_id IS NULL GROUP BY timeline_id ) AS cm ON timeline.id = cm.timeline_id LEFT JOIN (SELECT id,timeline_id, COUNT(id) AS c_id FROM likes GROUP BY timeline_id) AS lks ON timeline.id = lks.timeline_id WHERE timeline.user_id IN (SELECT followed_id FROM follow WHERE user_id=${decode.user[0].id}) ORDER BY created_at DESC`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        let format 
+                        for(let datas in result){
+                            format = datetime.create(result[datas].created_at)
+                            result[datas].created_at = moment(format.format("Ymd"),'YYYYMMDD').fromNow()
+                        }
+               
+                        
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+                
+            }
+
+            async function execute()
+            {
+                let get_likes = await getLikes()
+                let get_timeline = await getTimeline()
+               
+                
+
+                let data = get_timeline
+                return data
+            }
+
+            execute()
+                .then(function(data){
+                    res.json(200,data)
+                })
+                .catch(function(err){
+                    console.log(err);
+                    
+                })
+            
+        }
+    })
+})
+api("/timeline/:id/referal",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode = jwt.verify(token,secreet)
+        if(req.methods == 'GET')
+        {
+            function getComments()
+            {
+                let sql = `SELECT comments.id, timeline_id, comments, username, comments.created_at, comments.user_id, figure_relation.user_id, comments_id FROM comments INNER JOIN figure_relation ON comments.user_id = figure_relation.user_id INNER JOIN users ON comments.user_id = users.id  WHERE timeline_id=${req.params.id} AND figure_relation.figure_id=${decode.user[0].id} AND comments_id IS NULL`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+            async function execute()
+            {
+                let get_comments = await getComments();
+                for (let key in get_comments) {
+                    let dt = moment(get_comments[key].created_at,'Y-m-d H:M:S').fromNow()
+                    get_comments[key].created_at = dt
+                }
+                
+                return get_comments;
+            }
+
+            execute()
+                .then(function(data){
+                    res.json(200,data)
+                })
+        }
+    })
+})
+api("/comments/:id/referal",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode = jwt.verify(token,secreet)
+        if(req.methods == 'GET')
+        {
+            function listComments()
+            {
+                let sql = `SELECT comments.id, timeline_id, comments, username, comments.created_at, comments.user_id, figure_relation.user_id, comments_id FROM comments INNER JOIN figure_relation ON comments.user_id = figure_relation.user_id INNER JOIN users ON comments.user_id = users.id  WHERE comments_id=${req.params.id} AND figure_relation.figure_id=${decode.user[0].id} `
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+            function getComments()
+            {
+                let sql = ` SELECT comments.id, comments.created_at, comments.comments_id, comments.timeline_id, comments.user_id, comments.comments, users.username  FROM  comments INNER JOIN users ON comments.user_id = users.id WHERE comments.id=${req.params.id} LIMIT 1`
+                let sql_promise = new Promise(function(resolve,rejec){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+            async function execute()
+            {
+                let list_comments = await listComments();
+                let get_comments = await getComments();
+                for (let key in list_comments) {
+                    let dt = moment(list_comments[key].created_at,'Y-m-d H:M:S').fromNow()
+                    list_comments[key].created_at = dt
+                }
+
+                let dt_getcomments = moment(get_comments[0].created_at,'Y-m-d H:M:S').fromNow()
+                get_comments[0].created_at = dt_getcomments;
+
+                let data = {
+                    list_comments:list_comments,
+                    get_comments:get_comments[0]
+                }
+                return data;
+            }
+
+            execute()
+                .then(function(data){
+                    res.json(200,data)
+                })
+        }
+    })  
+})
+
+
+api("/timeline/:id/:user_id",function(req,res){
+    verifyToken(req,res,function(token){
+        var decode = jwt.verify(token,secreet)
+        function getUser()
+        {
+            let sql = `SELECT users.id,users.username,profile.profesi  FROM users INNER JOIN profile ON users.id = profile.user_id  WHERE users.id=${req.params.user_id} LIMIT 1`
+    
+            let sql_promise = new Promise(function(resolve,reject){
+                con.query(sql,function(err,result){
+                    if(err) console.log(err);
+                    
+                    resolve(result)
+                })
+            })
+    
+            return sql_promise
+        }
+    
+        function getTimeline()
+        {
+            let sql = `SELECT timeline.id,title,description,timeline.created_at, IF(likes.likes IS NULL ,0,likes.likes) AS likes, IF(cm.c_id IS NULL,0,cm.c_id) AS comments_total, IF(lk.l_id IS NULL ,0, lk.l_id) AS likes_total  FROM timeline 
+            LEFT OUTER JOIN 
+                (SELECT id, timeline_id, comments_id,  COUNT(id) as c_id 
+            FROM comments WHERE comments_id IS NULL GROUP BY timeline_id) 
+            AS cm ON timeline.id = cm.timeline_id 
+            LEFT JOIN (SELECT id,timeline_id, COUNT(id) AS l_id FROM likes GROUP BY timeline_id) AS lk ON timeline.id = lk.timeline_id
+            LEFT OUTER JOIN likes ON timeline.id = likes.timeline_id AND ${decode.user[0].id} = likes.user_id WHERE timeline.id=${req.params.id} LIMIT 1`
+            let sql_promise = new Promise(function(resolve,reject){
+                con.query(sql,function(err,result){
+                    if(err)console.log(err);
+                    
+                    resolve(result)
+                })
+            })
+            return sql_promise
+        }
+    
+        function getLastMessage()
+        {
+            let sql = `SELECT comments,users.username,comments.user_id   FROM comments INNER JOIN users ON comments.user_id = users.id WHERE comments.timeline_id=${req.params.id} ORDER BY comments.id DESC LIMIT 1`
+            var sql_promise = new Promise(function(resolve,reject){
+                con.query(sql,function(err,result){
+                    if(err) console.log(err);
+                    resolve(result)
+                })
+            })
+    
+            return sql_promise
+        }
+    
+        async function execute()
+        {
+            let get_user = await getUser()
+            let get_timeline = await getTimeline()
+            let get_last_message = await getLastMessage()
+            console.log(get_timeline);
+            
+            let dt = moment(get_timeline[0].created_at,'Y-m-d H:M:S').fromNow()
+            if(get_last_message[0] == undefined){
+                get_last_message[0] = {
+                    comments:0
+                }
+            }
+            get_timeline[0].created_at = dt
+        
+            let data = {
+                users:get_user[0],
+                timeline:get_timeline[0],
+                last_comments:get_last_message[0]
+            }
+    
+            return data
+        }
+    
+        execute()
+            .then(function(data){
+                return res.json(200,data)
+            })
+            .catch(function(err){
+                console.log(err);
+                
+            })
+        
+        
+    })
+
+})
+
+api("/comments/reply/:id",function(req,res){
+    if(req.methods == 'GET'){
+        verifyToken(req,res,function(token){
+            function getListReplyComment()
+            {
+                let sql = `SELECT comments.id,comments.comments_id, comments.comments, comments.timeline_id, comments.user_id, comments.created_at, users.username FROM comments INNER JOIN users ON comments.user_id = users.id WHERE comments_id=${req.params.id}`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+               
+            }
+
+            function getComments()
+            {
+                let sql = ` SELECT comments.id, comments.created_at, comments.comments_id, comments.timeline_id, comments.user_id, comments.comments, users.username  FROM  comments INNER JOIN users ON comments.user_id = users.id WHERE comments.id=${req.params.id} LIMIT 1`
+                let sql_promise = new Promise(function(resolve,rejec){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+            async function execute(){
+                let get_list_reply_comment = await getListReplyComment()
+                let get_comments = await getComments() 
+                let dt 
+                for(let datas in get_list_reply_comment){
+                    get_list_reply_comment[datas].created_at = moment(get_list_reply_comment[datas].created_at,'Y-m-d H:M:S').fromNow()
+                }
+                
+                
+                get_comments[0].created_at = moment(get_comments[0].created_at,'Y-m-d H:M:S').fromNow()
+                let data =  {
+                    list_comments:get_list_reply_comment,
+                    get_comments:get_comments[0]
+                }
+
+                return data
+            }
+
+            execute()
+                .then(function(data){
+                    res.json(200,data)
+                })
+                .catch(function(err){
+                    console.log(err);
+                    
+                })
+        })
+    }
+})
+
+api("/profile",function(req,res){
+    if(req.methods == 'GET'){
+        verifyToken(req,res,function(token){
+            let decode = jwt.verify(token,secreet)
+        
+            function users()
+            {
+                
+                let sql = `SELECT users.id,first_name,last_name,motto,profesi, is_photo, users.username, users.email, users.no_telp FROM profile INNER JOIN users ON profile.user_id = users.id LEFT JOIN photo ON profile.user_id = photo.user_id WHERE profile.user_id=${decode.user[0].id}`   
+                let users_data = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.error(err);
+                        
+                        resolve(result)
+                    })
+                })
+
+                return users_data
+            }
+
+            function getFollowing(args)
+            {
+                let sql = `SELECT COUNT(followed_id) AS following FROM follow WHERE user_id=${args}`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result)
+                    })
+                })
+                return sql_promise
+            }
+
+            function topic(args)
+            {
+                let sql = `SELECT COUNT(user_id) AS topic FROM timeline WHERE user_id=${args}`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result)
+                    })
+                })
+                return sql_promise
+            }
+
+            function getFollower(args)
+            {
+                let sql = `SELECT COUNT(user_id) AS follower FROM follow WHERE followed_id=${args}`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result)
+                    })
+                })
+                return sql_promise
+            }
+
+            function profilePhoto()
+            {
+                let sql = `SELECT * FROM photo WHERE user_id=${decode.user[0].id} LIMIT 1`
+                let profile_photo = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                    
+                        resolve(result)
+                    })
+                })
+
+                return profile_photo
+            }
+
+            async function getData()
+            {
+                let users_data = await users();
+                let profile_photo = await profilePhoto();
+                let get_following = await getFollowing(users_data[0].id)
+                let get_follower = await getFollower(users_data[0].id)
+                let get_topic = await topic(users_data[0].id)
+                let get_data = {}
+
+                get_data['users'] = users_data[0]
+                get_data['following'] = get_following[0].following
+                get_data['follower'] = get_follower[0].follower
+                get_data['topic'] = get_topic[0].topic
+                get_data['profile_photo'] = profile_photo[0]
+
+                return get_data
+            }
+
+            getData()
+                .then(function(data){
+                    return res.json(200,data)
+                })
+                .catch(function(err){
+                    console.log(err);
+                    
+                })
+            
+            
+        })
+    }
+    if(req.methods == 'POST'){
+        verifyToken(req,res,function(token){
+            req.on('error',function(e){
+                console.log(e);     
+            })
+            var decode = jwt.verify(token,secreet)
+            var form =  new formidable.IncomingForm()
+            var oldpath = `${__dirname}/storage/public/users/${decode.user[0].username}`
+            if(!fs.existsSync(oldpath)){
+                fs.mkdirSync(oldpath)
+            }
+            form.uploadDir = oldpath
+            form.encoding = 'utf-8';
+            form.keepExtensions = true;
+                // form.uploadDir =fileDirectory;
+            form.parse(req,function(err,fields,files){
+                console.log(fields);
+                console.log(files);
+                
+                let sql = `UPDATE profile SET first_name='${fields.first_name}', last_name = '${fields.last_name}', profesi = '${fields.profesi}', motto = '${fields.motto}', is_photo = ${fields.is_photo} WHERE user_id=${decode.user[0].id}`
+                let sql_update_users = `UPDATE users SET email='${fields.email}', no_telp = '${fields.no_telp}', username = '${fields.username}' WHERE id=${decode.user[0].id}`
+                
+                let sql_update = `SELECT * FROM photo WHERE user_id = ${decode.user[0].id}`
+                con.query(sql_update_users,function(err,result){
+                    if(err) console.log(err);
+                    
+                })
+                con.query(sql_update,function(err,result){
+                    if (err) {
+                        console.log(err);
+                    }
+                    
+                    if(result[0] == undefined || result[0] == null){
+                        con.query(`INSERT INTO photo (user_id) VALUES(${decode.user[0].id})`,function(err,result){
+                            if(err)console.log(err);
+                        })
+                        return
+                    }
+                     if(fs.existsSync(result[0].path) && files.photo != null){
+                        fs.unlink(`${result[0].path}`,function(err){
+                            console.log(err);        
+                        })
+                    }
+                })
+                console.log(files.photo);
+                if(files.photo != null){
+
+                con.query(`UPDATE photo SET path ='${files.photo.path}' WHERE user_id=${decode.user[0].id}`)
+		}
+                con.query(sql,function(err,result){
+                    if(err) console.log(err);    
+                })
+                return  res.json(200,{
+                    success:true,
+                    status:200
+                })
+            })  
+            
+        })
+    }
+})
+api("/profile/follow",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode =  jwt.verify(token,secreet)
+        if(req.methods == 'GET'){
+            function getFollowing()
+            {
+                let sql = `SELECT users.id, users.username,users.role,IF(photo.id IS NULL,0,1) AS is_photo FROM follow INNER JOIN users ON follow.followed_id = users.id LEFT JOIN photo ON users.id = photo.user_id   WHERE follow.user_id=${decode.user[0].id}`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+            function getFollower()
+            {
+                let sql = `SELECT users.id, users.username,users.role,IF(fl.id IS NULL,0,1) AS is_follow, IF(photo.id IS NULL,0,1) AS photo_id FROM follow INNER JOIN users ON follow.user_id = users.id LEFT JOIN follow AS fl ON users.id = fl.followed_id LEFT JOIN photo ON users.id = photo.user_id WHERE follow.followed_id=${decode.user[0].id}`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+
+            async function execute()
+            {
+                let data
+                let get_following = await getFollowing();
+                let get_follower = await getFollower();
+                data = {
+                    following:get_following,
+                    follower:get_follower
+                }
+                return data
+            }
+
+            execute()
+                .then(function(data){
+                    return res.json(200,data)
+                })
+                .catch(function(err){
+                    console.log(err);
+                    
+                })
+        }
+    })
+})
+api("/profile/photo",function(req,res){
+    if(req.methods == 'GET'){
+        verifyToken(req,res,function(token){
+            let decode = jwt.verify(token,secreet);
+            // console.log(decode.user[0].id);
+            let sql = `SELECT * FROM photo WHERE user_id=${decode.user[0].id} LIMIT 1`
+            con.query(sql,function(err,result){
+                if (err) {
+                    console.log("error mysql " + err);
+                }
+                if(result[0] == undefined || result[0].path == null){
+                    fs.readFile(`${__dirname}/storage/public/default/users.png`,function(err,file){
+                        if(err) console.log(err);
+                        
+                        res.writeHead(200,{
+                            'Content-Type':'image/png',
+                            'Content-Type':'image/jpg',
+                            'Content-Type':'image/jpeg'
+                        })
+                       return res.end(file,'binary')
+                    })
+                    return
+                }
+                
+              
+                fs.readFile(result[0].path,function(err,file){
+                    if(err) console.log(err);
+                    
+                    res.writeHead(200,{
+                        'Content-Type':'image/png'
+                    })
+                    res.end(file,'binary')
+                })   
+            })
+        })
+    }
+})
+
+// likes
+api("/likes/:timeline_id/:user_id",function(req,res){
+    
+    if(req.methods == 'POST'){
+        let sql = `DELETE FROM likes WHERE timeline_id=${req.params.timeline_id} AND user_id=${req.params.user_id}`
+        let sql_delete = `SELECT COUNT(id) AS likes_total FROM likes WHERE timeline_id=${req.params.timeline_id}`
+        con.query(sql,function(err,result){
+            if(err) console.log(err);
+        })
+        con.query(sql_delete,function(err,result){
+            if(err) console.log(err);
+         
+            
+            return res.json(200,{
+                status:200,
+                success:true,
+                likes_total:result[0].likes_total
+            })
+        })
+    }
+})
+api("/likes",function(req,res){
+    verifyToken(req,res,function(token){
+        var decode = jwt.verify(token,secreet)
+        if(req.methods == 'POST')
+        {
+            req.on('data',function(data){
+                let json = qs.parse(data.toString())
+                let insert_sql = {
+                    timeline_id:json.timeline_id,
+                    user_id:decode.user[0].id,
+                    likes:json.likes
+                }
+                let sql = `INSERT INTO likes SET ?`
+                con.query(sql,insert_sql,function(err,result){
+                    if(err) console.log(err);
+                    
+                })
+                let sql_count = `SELECT COUNT(id) AS likes_total FROM likes WHERE timeline_id=${json.timeline_id}`
+                con.query(sql_count,function(err,result){
+                    if(err) console.log(err);
+                    return res.json(200,{
+                        status:200,
+                        success:true,
+                        likes_total:result[0].likes_total
+                    })
+                })
+            })
+        }
+        if(req.methods == 'DELETE'){
+            
+        }
+    })
+})
+// profile timeline
+api("/profile/timeline",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode = jwt.verify(token,secreet)
+
+        var form =  new formidable.IncomingForm()
+        var path = `${__dirname}/storage/public/users/${decode.user[0].username}`
+        if(!fs.existsSync(path)){
+            fs.mkdirSync(path)
+        }
+
+        var oldpath = `${__dirname}/storage/public/users/${decode.user[0].username}/timeline/`
+        if(!fs.existsSync(oldpath)){
+            fs.mkdirSync(oldpath)
+        }
+        
+        form.uploadDir = oldpath
+        form.encoding = 'utf-8';
+        form.keepExtensions = true;     
+
+        if(req.methods == 'POST'){   
+                
+                form.parse(req,function(err,fields,files){
+                    if(err) console.log(err);
+ 
+                    let insert = {
+                        user_id:decode.user[0].id,
+                        category_id:fields.category_id,
+                        title:fields.title,
+                        description:fields.description,
+                        is_photo:fields.is_photo
+                    }
+                    
+                    let sql = `INSERT INTO timeline SET ?`
+                    
+                    con.query(sql,insert,function(err,result){
+                        if(err) console.log(err);
+                        
+                    })
+
+                    function getTimeline(){
+                        let sql_select_timeline = `SELECT * FROM timeline WHERE user_id=${decode.user[0].id} ORDER BY id DESC LIMIT 1`
+                        let data = new Promise(function(resolve,reject){
+                            con.query(sql_select_timeline,function(err,result){
+                                if(err)reject(err);
+                                
+                                resolve(result)
+                            })
+                        })
+
+                        return data
+                    }
+
+                    function insertPhoto(args){
+                        let insert_data = `INSERT INTO photo (timeline_id,path) VALUES(${args},'${files.photo.path}')`
+                        con.query(insert_data,function(err,result){
+                            if(err)console.log(err);            
+                        })
+                    }
+
+                    async function exec(){
+                        let get_timeline = await getTimeline()
+                        let insert_photo = insertPhoto(get_timeline[0].id)     
+                    }
+                     return exec()
+                        .then(function(){
+                            res.json(200,{
+                            status:200,
+                            success:true
+                        })
+                        }).catch(function(err){
+                            res.json(200,{
+                                status:401,
+                                success:true,
+                                message:err
+                            })
+                        })
+                     
+                })
+                
+                
+                
+        }
+        if(req.metho == 'PUT'){
+            var form = new formidable.IncomingForm()
+
+            form.parse(req,function(err,fields,files){
+
+                function getTimeline()
+                {
+                    let sql = `SELECT * FROM timeline WHERE id=${fields.id} LIMIT 1`
+
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+
+                    return sql_promise
+                }
+
+                function deletePhoto(args)
+                {
+                    fs.unlinkSync(args)
+                }
+
+                function getPhoto()
+                {
+                    let sql = `SELECT * FROM photo WHERE timeline_id=${fields.id}`
+
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,function(err,result){
+                            if(err) console.log(err);
+                             resolve(result)
+                        })
+                    })
+
+                    return sql_promise
+                }
+
+                function updateTimeline()
+                {
+                    let update_sql = {
+                        category_id:fields.category_id,
+                        title:fields.title,
+                        description:fields.description,
+                        is_photo:fields.is_photo
+                    }
+
+                    let sql = `UPDATE timeline SET ? WHERE id=${fields.id}`
+
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,update_sql,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+                    return sql_promise
+                }
+
+                function insertPhoto()
+                {
+                    let insert_sql = {
+                        timeline_id:fields.id,
+                        path:files.photo.path
+                    }
+
+                    let sql = `INSERT INTO photo SET ? `
+                    con.query(sql,insert_sql,function(err,result){
+                        if(err) console.log(err);
+                        
+                    })
+                }
+
+                async function execute()
+                {
+                    let get_photo = await getPhoto()
+                    let update_timeline = await updateTimeline()
+                    
+                    if(get_photo[0].path != undefined || get_photo[0].path != null)
+                    {
+                        deletePhoto(get_photo[0].path)
+                    }
+                    insertPhoto()
+                    let data = {
+                        message:'success',
+                        status:200
+                    }
+                    return data
+                }
+
+                execute()
+                    .then(function(data){
+                        res.json(200,data)
+                    })
+                    .catch(function(err){
+                        console.log(err);
+                        
+                    })
+            })
+        }
+        if(req.methods == 'GET'){
+            let sql = `SELECT timeline.is_photo, timeline.user_id,timeline.title,timeline.description,timeline.id,timeline.created_at , category_user.title as category_title FROM timeline INNER JOIN category_user ON timeline.category_id = category_user.id WHERE timeline.user_id=${decode.user[0].id} ORDER BY timeline.id DESC`
+            con.query(sql,function(err,result){
+                if(err)console.log(err);
+                console.log(decode.user[0].id);   
+                let format 
+                for(let datas in result){
+                    format = datetime.create(result[datas].created_at)
+                    result[datas].created_at = moment(format.format("Ymd"),'YYYYMMDD').fromNow()
+                }
+                return res.json(200,result)
+            })
+        }
+    })
+})
+api("/profile/timeline/:id",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode = jwt.decode(token,secreet)
+        if(req.methods == 'GET'){
+            
+            function getUser()
+            {
+                let sql = `SELECT users.id,users.username,profile.profesi, photo.id AS photo_id FROM users INNER JOIN profile ON users.id = profile.user_id LEFT JOIN photo ON users.id = photo.user_id WHERE users.id=${decode.user[0].id} LIMIT 1`
+
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+            function getTimeline()
+            {
+                let sql = `SELECT id,title,description,created_at FROM timeline  WHERE id=${req.params.id} AND user_id=${decode.user[0].id} LIMIT 1`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err)console.log(err);
+                        
+                        resolve(result)
+                    })
+                })
+                return sql_promise
+            }
+
+            async function execute()
+            {
+                let get_user = await getUser()
+                let get_timeline = await getTimeline()
+
+                let dt = datetime.create(get_timeline[0].created_at).format('Ymd')
+                console.log(dt);
+                
+                get_timeline[0].created_at = moment(dt.toString(),"YYYYMMDD").fromNow()
+                let data = {
+                    users:get_user[0],
+                    timeline:get_timeline[0]
+                }
+
+                return data
+            }
+
+            execute()
+                .then(function(data){
+                    return res.json(200,data)
+                })
+                .catch(function(data){
+                    console.log(data);
+                    
+                })
+            
+            
+        }
+    })
+})
+api("/profile/timeline/update/:id",function(req,res){
+    verifyToken(req,res,function(token){
+        if(req.methods == 'GET'){
+            function getTimeline()
+            {
+                let sql = `SELECT timeline.id,category_user.id AS category_id, timeline.user_id, timeline.title, timeline.description, timeline.is_photo, category_user.title AS category_title FROM timeline INNER JOIN category_user ON timeline.category_id = category_user.id   WHERE timeline.id=${req.params.id} LIMIT 1`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result)
+                    })
+                })
+                return sql_promise;
+            }
+
+            async function execute()
+            {
+                let get_timeline = await getTimeline()
+
+                return get_timeline[0]
+            }
+            execute()
+                .then(function(data){
+                    res.json(200,data)
+                })
+                .then(function(err){
+                    console.log(err);
+                })
+        }else if(req.methods == 'POST'){
+            console.log("post from update");
+            
+            let decode  = jwt.verify(token,secreet)
+            var form    =  new formidable.IncomingForm()
+            var oldpath = `${__dirname}/storage/public/users/${decode.user[0].username}/timeline/`
+            if(!fs.existsSync(oldpath)){
+                fs.mkdirSync(oldpath)
+            }
+
+            form.uploadDir = oldpath
+            form.encoding = 'utf-8';
+            form.keepExtensions = true;     
+    
+            form.parse(req,function(err,fields,files){
+                if(err) console.log(err);
+                console.log(files);
+                console.log("form trigered");
+                
+                
+                
+                let insert = {
+                    user_id:decode.user[0].id,
+                    category_id:fields.category_id,
+                    title:fields.title,
+                    description:fields.description,
+                    is_photo:fields.is_photo
+                }
+                
+                let sql = `UPDATE timeline SET ? WHERE id=${req.params.id}`
+                
+                con.query(sql,insert,function(err,result){
+                    if(err) console.log(err);  
+                })
+
+                function getTimeline(){
+                    let sql_select_timeline = `SELECT * FROM timeline WHERE user_id=${decode.user[0].id} AND id=${req.params.id}  LIMIT 1`
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql_select_timeline,function(err,result){
+                            if(err)console.log(err);
+                            
+                            
+                            resolve(result)
+                        })
+                    })
+
+                    return sql_promise
+                }
+
+                function getPhoto(args)
+                {
+                    let sql = `SELECT path FROM photo WHERE timeline_id=${args} LIMIT 1`
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+
+                    return sql_promise
+                }
+
+                function updatePhoto(args){
+                    let update = {
+                        path:files.photo.path
+                    }
+                    let insert_data = `UPDATE photo SET ? WHERE timeline_id=${args}`
+                    con.query(insert_data,update,function(err,result){
+                        if(err)console.log(err);            
+                    })
+                }
+
+                function insertPhoto(args){
+                    let insert = {
+                        path:files.photo.path,
+                        timeline_id:args
+                    }
+
+                    let insert_sql = `INSERT INTO photo SET ?`
+                    con.query(insert_sql,insert,function(err,result){
+                        if(err) console.log(err);
+                    })
+                }
+
+                async function execute(){
+                    let get_timeline = await getTimeline()
+                    let get_photo = await getPhoto(get_timeline[0].id)
+                    
+                    
+                    if(files.photo.name != undefined){
+                        if(get_photo[0] != undefined){
+                            console.log("update photo");
+                            
+                            fs.unlinkSync(get_photo[0].path)
+                             updatePhoto(get_timeline[0].id)
+                        }else{
+                            console.log("upload photo");
+                            
+                             insertPhoto(get_timeline[0].id)
+                        }
+                    }
+                     return true
+                }
+                execute()
+                    .then(function(){
+                      return  res.json(200,{
+                            status:200,
+                            success:true
+                        })
+                    }).catch(function(err){
+                        console.log(err);
+                        
+                        res.json(200,{
+                            status:401,
+                            success:false,
+                            message:err
+                        })
+                    })
+                 
+            })
+        }else {
+            res.json(200,{
+                Authorization:'err'
+            })
+        }
+    })
+})
+api("/profile/timeline/photo/:timeline_id",function(req,res){
+        if(req.methods == 'GET'){
+            let sql = `SELECT * FROM photo WHERE timeline_id=${req.params.timeline_id} LIMIT 1`
+            con.query(sql,function(err,result){
+                if(err) console.log(err);
+                
+                if(result[0] == undefined){
+                    
+                    return res.json(200,{
+                        image:null
+                    })
+                }
+
+                fs.readFile(`${result[0].path}`,function(err,file){
+                    res.writeHead(200,{
+                        'Content-Type':'image/giff',
+                        'Content-Type':'image/png',
+                        'Content-Type':'image/jpg',
+                        'Content-Type':'image/jpeg',
+                    })
+                    res.end(file,'binary')
+                })
+
+            })
+        }
+})
+api("/profile/timeline/photo/:id",function(req,res){
+    if(req.methods == 'GET'){
+        let sql = `SELECT * FROM photo WHERE timeline_id=${req.params.id} LIMIT 1`
+        con.query(sql,function(err,result){
+            if (err) {
+                console.log("error mysql " + err);
+            }
+            
+            if(result[0] == undefined || result[0].path == null){
+
+		fs.readFile(`${__dirname}/storage/public/default/users.png`,function(err,file){
+			if(err) console.log(err)
+		    	
+		    res.writeHead(200,{
+                'Content-Type':'image/png',
+                'Content-Type':'image/jpeg'
+                })
+		    res.end(file,'binary')
+	    	})
+		    return
+	    }
+
+            fs.readFile(result[0].path,function(err,file){
+                if(err) console.log(err);
+                
+                res.writeHead(200,{
+                    'Content-Type':'image/png',
+                    'Content-Type':'image/jpeg'
+                })
+                res.end(file,'binary')
+            })   
+        })
+    }
+})
+api("/profile/category",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode = jwt.verify(token,secreet)        
+        if(req.methods == 'GET'){
+            let sql = `SELECT title,color,id FROM category_user WHERE user_id=${decode.user[0].id}`
+            con.query(sql,function(err,result){
+                if(err)console.log(err);
+                
+                return res.json(200,result);
+            })
+        }
+        if(req.methods == 'POST'){
+            req.on('data',function(data){
+                let json = qs.parse(data.toString())
+                let sql_select = `SELECT * FROM category WHERE title='${json.title}' LIMIT 1`
+                con.query(sql_select,function(err,result){
+                    if(err){
+                        console.log(err);
+                        
+                    }
+                    // console.log(result[0].count);
+                    
+                    let insert_category_user = {
+                        title:json.title,
+                        color:randomColor(),
+                        user_id:decode.user[0].id
+                    }
+                    let sql_insert_category_user = `INSERT INTO category_user SET ?`
+                    
+                    con.query(sql_insert_category_user,insert_category_user,function(err,result){
+                        if(err) console.log(err);
+                    })
+                    if(result[0] != undefined){
+                        console.log("data ada");
+                        let count_data = result[0].count + 1;
+                        console.log(count_data);
+                        
+                        
+                        con.query(`UPDATE category SET count = ${count_data} WHERE title='${json.title}'`,function(err,result){
+                            if(err)console.log(err.sqlMessage);      
+                        })
+                        return
+                    }
+                    let insert_category = {
+                        title:json.title,
+                        color:randomColor()
+                    }
+                    
+                    let sql_insert_category = `INSERT INTO category SET ?`
+                    con.query(sql_insert_category,insert_category,function(err,result){
+                        if(err) console.log(err);
+                        
+                        
+                    })
+
+                    let sql_get_category = `SELECT * FROM category_user WHERE user_id=${decode.user[0].id} ORDER BY id DESC `
+                    con.query(sql_get_category,function(err,result){
+                        if(err) console.log(err);
+                        
+                        return res.json(200,{
+                            message:'success insert',
+                            status:200,
+                            success:true,
+                            result:result
+                        })
+                    })
+                    
+                })
+            })
+        }
+    })
+})
+// follow
+api("/follow",function(req,res){
+    verifyToken(req,res,function(token){
+        if(req.methods == 'POST'){
+            req.on('data',function(data){
+                let decode = jwt.verify(token,secreet)
+                let json = qs.parse(data.toString())
+                let insert = {
+                    user_id:decode.user[0].id,
+                    followed_id:json.followed_id,
+                    is_fans:json.is_fans
+                }
+                let sql
+                console.log(json.is_following);
+                
+                if(json.is_following == 0){
+                    sql = `DELETE FROM follow WHERE user_id=${decode.user[0].id} AND followed_id=${json.followed_id}`
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);        
+                        con.query(`SELECT COUNT(user_id) AS total FROM follow WHERE followed_id=${json.followed_id}`,function(err,result){
+                            if (err) {
+                                console.log(err);
+                                
+                            }
+                            return res.json(200,{
+                                success:true,
+                                status:200,
+                                total:result[0].total
+                            })
+                        })
+                    })
+                    return
+                }
+                sql = 'INSERT INTO follow SET ?'
+                con.query(sql,insert,function(err,result){
+                    if(err) console.log(err);
+                          
+                })
+
+                con.query(`SELECT COUNT(user_id) AS total FROM follow WHERE followed_id=${json.followed_id} `,function(err,result){
+                    if (err) {
+                        console.log(err);
+                        
+                    }
+                    return res.json(200,{
+                        success:true,
+                        status:200,
+                        total:result[0].total
+                    })
+                })
+            })
+        }
+    })
+})
+api("/following",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode  = jwt.verify(token,secreet)
+        let sql     = `SELECT * FROM follow WHERE user_id=${decode.user[0].id}`
+        
+        con.query(sql,function(err,result){
+            if(err)console.log(err);
+            
+            return res.json(200,result)
+        })
+    })
+})
+
+api("/setting",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode = jwt.verify(token,secreet)
+        function getSettingReferal()
+        {
+            let sql = `SELECT * FROM figure_relation WHERE user_id=${decode.user[0].id}`
+            let sql_promise = new Promise(function(resolve,reject){
+                con.query(sql,function(err,result){
+                    if(err) console.log(err);
+                    if(result[0] != undefined){
+                        return resolve(true)
+                    }
+
+                    return resolve(false)
+                })
+            })
+            return sql_promise
+        }
+
+        function getReferalCode()
+        {
+            let sql = `SELECT * FROM asisten_relation WHERE user_id=${decode.user[0].id}`
+            let sql_promise = new Promise(function(resolve,reject){
+                con.query(sql,function(err,result){
+                    if(err) console.log(err);
+                    if(result[0] != undefined){
+                        return resolve(result)
+                    }
+                     result[0] = {
+                        key_overal:0
+                    }
+                    return resolve(result)
+
+
+                })
+            })
+            return sql_promise
+        }
+
+        async function execute()
+        {
+            let get_setting_referal = await getSettingReferal()
+            let get_referal_code = await getReferalCode()
+
+            let data = {
+                is_referal:get_setting_referal,
+                referal_code:get_referal_code[0].key_overal
+            }
+
+            return data
+        }
+
+        execute()
+            .then(function(data){
+                res.json(200,data)
+            })
+    })
+})
+
+// search
+api("/search",function(req,res){
+    verifyToken(req,res,function(){
+        if(req.methods == 'GET'){
+            verifyToken(req,res,function(token){
+                let sql = `SELECT users.id ,users.username, users.email, users.no_telp, profile.first_name, profile.is_photo, users.role, profile.last_name,profile.motto FROM users INNER JOIN profile ON users.id = profile.user_id`
+                con.query(sql,function(err,result){
+                    if (err) {
+                        console.log(err);                  
+                    }
+                    return res.json(200,result)
+                })
+            })
+        }
+        if(req.methods == 'POST')
+        {
+            req.on('data',function(data){
+                let json = qs.parse(data.toString())
+                if(json.search == '' || json.search == null)
+                {
+                    json.search = 'a'
+                }
+                function getUsers()
+                {
+                    let sql = `SELECT users.id ,users.username, users.email, users.no_telp, profile.first_name, profile.is_photo, users.role, profile.last_name,profile.motto FROM users INNER JOIN profile ON users.id = profile.user_id WHERE username LIKE '%${json.search}%' OR email LIKE '%${json.search}%' OR no_telp LIKE '%${json.search}%' OR profile.first_name LIKE '%${json.search}%' OR profile.last_name LIKE '%${json.search}%'`
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+                    return sql_promise
+                }
+
+                function getTimeline()
+                {
+                    let sql = `SELECT title,id,user_id FROM timeline WHERE title LIKE '%${json.search}%' OR description LIKE '%${json.search}%'`
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,function(err,result){
+                            if(err) console.log(err);
+                            
+                            resolve(result)
+                        })
+                    })
+                    return sql_promise
+                }
+
+                function getCategory() 
+                {
+                    let sql = `SELECT category_user.title, category_user.color, COUNT(timeline.title) AS total_kiriman FROM category_user LEFT JOIN timeline ON category_user.id = timeline.category_id WHERE category_user.title LIKE '%${json.search}%' GROUP BY category_user.title`
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+                    return sql_promise
+                }
+
+                async function execute()
+                {
+                    let get_users = await getUsers(),
+                        get_timeline = await getTimeline(),
+                        get_category = await getCategory()
+
+                    let data = {
+                        get_user:get_users,
+                        get_timeline:get_timeline,
+                        get_category:get_category
+                    }
+
+                    return data
+                }
+
+                execute()
+                    .then(function(data){
+                        res.json(200,data)
+                    })
+                    .catch(function(err){
+                        console.log(err);
+                        
+                    })
+            })
+        }
+    })
+
+})
+// category
+api("/search/category/:id",function(req,res){
+    if(req.methods == 'GET')
+    {
+        let sql = `SELECT * FROM category_user WHERE user_id=${req.params.id}`
+
+        con.query(sql,function(err,result){
+            if(err) console.log(err);
+            res.json(200,result)
+        })
+    }
+})
+
+api("/search/timeline/:id",function(req,res){
+    let sql = `SELECT * FROM timeline WHERE user_id=${req.params.id}`
+    con.query(sql,function(err,result){
+        if(err) console.log();
+        let format 
+        for(let datas in result){
+            format = datetime.create(result[datas].created_at)
+            result[datas].created_at = moment(format.format("Ymd"),'YYYYMMDD').fromNow()
+        }
+        res.json(200,result)
+    })
+})
+
+api("/search/profile/:username",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode = jwt.verify(token,secreet)
+        function getProfile()
+        {
+            let sql = `SELECT users.role,users.username,users.id, profile.profesi, profile.motto, profile.first_name, profile.last_name FROM users INNER JOIN profile ON users.id = profile.user_id WHERE users.username='${req.params.username}'`
+            let get_profile = new Promise(function(resolve,reject){
+                con.query(sql,function(err,result){
+                    if(err)console.log(err);
+                    resolve(result)
+                })
+            })
+
+            return get_profile
+        }
+
+        function getFollow(id)
+        {
+            let sql = `SELECT * FROM follow WHERE user_id=${decode.user[0].id} AND followed_id=${id}`
+            let get_follow = new Promise(function(resolve,reject){
+                con.query(sql,function(err,result){
+                    if(err)console.log(err);
+                    
+                    resolve(result)
+                })
+            })
+            return get_follow
+        }
+
+        function countFollower(args)
+        {
+            let sql = `SELECT COUNT(user_id) AS follower FROM follow WHERE followed_id=${args}`
+            let sql_promise = new Promise(function(resolve,reject){
+                con.query(sql,function(err,result){
+                    if(err) console.log(err);
+                    resolve(result)
+                })
+            })
+
+            return sql_promise
+        }
+
+        
+
+        function countFollowing(args)
+        {
+            let sql = `SELECT COUNT(followed_id) AS following FROM follow WHERE user_id=${args}`
+            let sql_promise = new Promise(function(resolve,reject){
+                con.query(sql,function(err,result){
+                    if(err) console.log(err);
+                    resolve(result)
+                })
+            })
+
+            return sql_promise
+        }
+
+        function countTopic(args)
+        {
+            let sql = `SELECT COUNT(user_id) AS topic FROM timeline WHERE user_id=${args}`
+            let sql_promise = new Promise(function(resolve,reject){
+                con.query(sql,function(err,result){
+                    if(err) console.log(err);
+                    resolve(result)
+                })
+            })
+
+            return sql_promise
+        }
+
+        function getLabeling(args)
+        {
+            let sql = `SELECT IF(id IS NULL,0,1) AS label,figure_id FROM asisten_relation WHERE user_id=${args}`
+            let sql_promise = new Promise(function(resolve,reject){
+                con.query(sql,function(err,result){
+                    let data
+                    if(err) console.log(err);
+                    
+                    if (result[0] != undefined) {
+                        data = {
+                            label:1,
+                            figure_id:result[0].figure_id
+                        }
+                       return resolve(data)
+                    }
+                    data = {
+                        label:0,
+                        figure_id:0
+                    }
+                    resolve(data)
+                })
+            })
+
+            return sql_promise
+        }
+
+        async function execute()
+        {
+            let get_profile = await getProfile()
+            let get_follow = await getFollow(get_profile[0].id)
+            let result = {}
+            let follower = await countFollower(get_profile[0].id)
+            let following = await countFollowing(get_profile[0].id)
+            let topic = await countTopic(get_profile[0].id)
+            let label = await getLabeling(get_profile[0].id)
+            get_profile[0].follow = true
+            
+            
+            if(get_follow[0] == undefined){
+                get_profile[0].follow = false
+            }
+            result['label'] = label          
+            result['follower'] = follower[0].follower
+            result['following'] = following[0].following
+            result['topic'] = topic[0].topic
+            result['profile'] = get_profile[0]
+            return result
+        }
+
+
+        execute()
+            .then(function(data){
+                
+                return res.json(200,data)
+            })
+            .catch(function(err){
+                console.log(err);
+                
+            })
+        
+    })
+})
+
+api("/search/profile/follow/:id",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode =  jwt.verify(token,secreet)
+        if(req.methods == 'GET'){
+            function getFollowing()
+            {
+                let sql = `SELECT DISTINCT(users.id), users.username,users.role, IF(photo.id IS NULL ,0 ,1)  AS is_photo, IF(fl.followed_id IS NULL,0 ,1) AS is_follow FROM follow INNER JOIN users ON follow.followed_id = users.id LEFT JOIN photo ON users.id = photo.user_id LEFT JOIN follow AS fl ON fl.user_id = ${decode.user[0].id} AND fl.followed_id = users.id   WHERE follow.user_id=${req.params.id}`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+            function getFollower()
+            {
+                let sql = `SELECT DISTINCT(users.id), users.username,users.role,IF(fl.followed_id IS NULL,0,1) AS is_follow, IF(photo.id IS NULL ,0 ,1) AS is_photo FROM follow INNER JOIN users ON follow.user_id = users.id LEFT  JOIN follow AS fl ON fl.user_id = ${decode.user[0].id} AND fl.followed_id = users.id   LEFT JOIN photo ON users.id = photo.user_id WHERE follow.followed_id=${req.params.id}`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+
+            async function execute()
+            {
+                let data
+                let get_following = await getFollowing();
+                let get_follower = await getFollower();
+                data = {
+                    following:get_following,
+                    follower:get_follower
+                }
+                return data
+            }
+
+            execute()
+                .then(function(data){
+                    return res.json(200,data)
+                })
+                .catch(function(err){
+                    console.log(err);
+                    
+                })
+        }
+    })
+})
+
+api("/search/profile/photo/:id",function(req,res){
+    if (req.methods == 'GET') {
+        let sql = `SELECT * FROM photo WHERE user_id=${req.params.id} LIMIT 1`
+        con.query(sql,function(err,result){
+            if(err){
+                console.log(err);
+            } 
+                
+            if(result[0] == undefined || result[0].path == null){
+
+                fs.readFile(`${__dirname}/storage/public/default/users.png`,function(err,file){
+                    if(err) console.log(err)
+                        
+                    res.writeHead(200,{
+                            'Content-Type':'image/png',
+                            'Content-Type':'image/jpeg',
+                       
+                    })
+                    return res.end(file,'binary')
+                    })
+                    return
+                }
+            fs.readFile(result[0].path,function(err,file){
+                if(err) console.log(err);
+                
+                res.writeHead(200,{
+                    'Content-Type':'image/png',
+                    'Content-Type':'image/jpeg',
+                    'Content-Type':'image/jpg',
+                })
+                res.end(file,'binary')
+            }) 
+            
+        })
+    }
+})
+
+// create group
+api("/message/group/broadcast",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode = jwt.verify(token,secreet);
+                                                        
+        if(req.methods == 'GET')
+        {
+            function getListGroup()
+            {
+                let sql = `SELECT * FROM group_message_figure WHERE user_id=${decode.user[0].id}`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+
+                        resolve(result)
+                    })
+                })
+                return sql_promise
+            }
+
+            async function execute()
+            {
+                let get_list_group = await getListGroup()
+
+                return get_list_group
+            }
+
+            execute()
+                .then(function(data){
+                    res.json(200,data)
+                })
+        } 
+        
+        if(req.methods == 'POST')
+        {
+            req.on('data',function(data){
+                let json = qs.parse(data.toString())
+
+                function insertGroup()
+                {
+                    let insert = {
+                        name:json.name,
+                        user_id:decode.user[0].id,
+                        color:`${randomColor()}`
+                    }
+                    let sql = `INSERT INTO group_message_figure SET ?`
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,insert,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+
+                    return sql_promise
+                }
+
+                async function execute()
+                {
+                    let insert_group = await insertGroup()
+
+                    return insert_group
+                }
+
+                execute()
+                    .then(function(data){
+                        res.json(200,{
+                            group_id:data.insertId
+                        })
+                    })       
+            })   
+        }
+    })
+})
+api("/message/group/broadcast/user",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode = jwt.verify(token,secreet)
+        if(req.methods == 'POST')
+        {
+           req.on('data',function(data){
+            let json = qs.parse(data.toString())
+            console.log(json);
+            
+            function insertUser(group_id,user_id)
+            {
+                let insert = {
+                    group_id:group_id,
+                    user_id:user_id
+                }
+
+                let sql = `INSERT INTO group_relation_message SET ?`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,insert,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result)
+                    })
+                })
+                return sql_promise
+            }
+
+            async function execute()
+            {
+                let check = json.user_id
+                if(check.isArray){
+                    for (let index = 0; index < json.user_id.length; index++) {
+                        insertUser(json.group_id,json.user_id[index])
+                          
+                    }
+                }else{
+                    insertUser(json.group_id,json.user_id)
+                }
+               
+                return true
+            }
+
+            execute()
+                .then(function(data){
+                    res.json(200,{
+                        success:true,
+                        status:200
+                    })
+                })
+           })
+        }
+    })
+})
+api("/message/group/broadcast/:id",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode = jwt.verify(token,secreet)
+        if(req.methods == 'GET')
+        {
+            function getList()
+            {
+                let sql = `SELECT group_relation_message.user_id, group_message_figure.user_id AS figure_id  FROM group_message_figure INNER JOIN group_relation_message ON  group_message_figure.id = group_relation_message.group_id WHERE group_message_figure.user_id = ${decode.user[0].id} AND group_relation_message.group_id = ${req.params.id}`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result)
+                    })
+                })
+                return sql_promise
+            }
+
+            async function execute()
+            {   
+                let get_list = await getList()
+                return get_list
+            }
+
+            execute()
+                .then(function(data){
+                    res.json(200,data)
+                })
+        }
+    })
+})
+api("/message/group/broadcast/",function(req,res){
+    verifyToken(req,res,function(token){
+        
+    })
+})
+
+// search message
+api("/message/user",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode = jwt.verify(token,secreet)
+        if(req.methods == 'POST'){
+            req.on('data',function(data){
+                let json = qs.parse(data.toString())
+                let sql = `SELECT users.id ,users.username, users.email, users.no_telp, profile.first_name, profile.last_name,profile.motto FROM users INNER JOIN profile ON users.id = profile.user_id WHERE profile.first_name LIKE '%${json.username}%' OR profile.last_name LIKE '%${json.username}%' OR users.username LIKE '%${json.username}%'`
+                con.query(sql,function(err,result){
+                    if(err)console.log(err);      
+                    return res.json(200,result)
+                })
+            })
+        }
+
+        if(req.methods == 'GET'){
+            let sql = `SELECT * FROM users INNER JOIN profile ON users.id = profile.user_id INNER JOIN follow ON users.id = follow.user_id WHERE users.id=${decode.user[0].id}`
+            con.query(sql,function(err,result){
+                if(err)console.log(err);
+                
+                return res.json(200,result)
+            })
+        }
+    })
+})
+
+api("/broadcast/group",function(req,res){
+    if(req.methods == 'GET'){
+        
+    }else if(req.methods == 'POST'){
+        req.on('data',function(data){
+            var json = qs.parse(data.toString());
+
+            function createGroup()
+            {
+                let insert = {
+                    name:json.name
+                }
+                let sql = `INSERT INTO group_message_figure SET ?`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,insert,function(err,result){
+                        if(err) console.log(err);
+                        resolve(result)
+                    })
+                })
+                return sql_promise
+            }
+
+            function insertGroup(group_id,user_id)
+            {
+                let insert = {
+                    group_id:group_id,
+                    user_id:user_id
+                }
+                let sql = `INSERT INTO group_relation_message SET ?`                
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,insert,function(err,result){
+                        if(err) console.log(err);
+                        
+                    })
+                })
+            
+            }
+
+            async function execute()
+            {
+                let create_group = await createGroup()
+                
+                for (let index = 0; index < user_id.length; index++) {
+                    insertGroup(create_group.insertId,user_id[index])
+                }
+            }
+
+            execute()
+                then(function(){
+                    res.json(200,{
+                        status:200,
+                        success:true
+                    })
+                })
+
+        })
+    }
+})
+
+api("/category/count",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode = jwt.verify(token,secreet)
+        if(req.methods == 'GET')
+        {
+            if(decode.user[0].role == 'admin')
+            {
+                function getList()
+                {
+                    let sql = `SELECT * FROM category`
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+                    return sql_promise
+                }
+    
+                async function execute()
+                {
+                    let get_list = await getList()
+    
+                    return get_list
+                }
+    
+    
+                execute()
+                    .then(function(data){
+                        return res.json(200,data)
+                    })
+            }else{
+                res.json(200,{
+                    auth:'unauthorization'
+                })
+            }
+        }
+    })
+})
+
+api("/message/file/:id",function(req,res){
+    if(req.methods == 'GET'){
+        let sql = `SELECT * FROM chat WHERE id=${req.params.id} LIMIT 1`
+        con.query(sql,function(err,result){
+            if(err) console.log(err);
+            if(result[0] == undefined){
+                return res.end(null)
+            }
+            if(!fs.existsSync(result[0].path_file)){
+                return res.end(null)
+            }
+            console.log(result[0].path_file);
+            
+            res.writeHead(200,{
+                'Content-Type':'image/png',
+                
+            })
+            let file = fs.readFileSync(result[0].path_file)
+            return res.end(file,'binary')
+        })
+    }
+})
+
+api("/message/list/:id",function(req,res){
+    verifyToken(req,res,function(token){
+        if(req.methods == 'GET'){
+            let decode = jwt.verify(token,secreet);
+            let sql = `SELECT users.username,chat.is_exist_file,chat.id, chat.user_id as from_id,group_message.id as group_id, chat.to_id, chat.created_at, chat.message FROM group_message INNER JOIN chat ON group_message.id = chat.group_id INNER JOIN users ON chat.user_id = users.id WHERE chat.group_id=${req.params.id}  ORDER BY chat.created_at ASC`
+            con.query(sql,function(err,result){
+                if(err)console.log(err);
+                var pastDateTime 
+                var now
+                for(let data in result){
+                     pastDateTime = datetime.create(result[data].created_at);
+                     now = pastDateTime.format("Y-m-d H:M:S")
+                     result[data].created_at = now
+                }
+                return res.json(200,result)
+            })
+        }
+        if(req.methods == 'POST'){
+            let decode = jwt.verify(token,secreet)
+            
+            var form =  new formidable.IncomingForm()
+            var oldpath = `${__dirname}/storage/public/users/${decode.user[0].username}/chat/`
+            if(!fs.existsSync(oldpath)){
+                fs.mkdirSync(oldpath)
+            }
+            form.uploadDir = oldpath
+            form.encoding = 'utf-8';
+            form.keepExtensions = true;
+           
+
+            form.parse(req,function(err,fields,files){
+    
+                
+                let sql_insert = {
+                    path_file:files.file.path,
+                    user_id:fields.user_id,
+                    to_id:fields.to_id,
+                    is_exist_file:true,
+                    group_id:fields.group_id
+                }
+                let sql = `INSERT INTO chat SET ? `                
+                con.query(sql,sql_insert,function(err,result){
+                    if(err) console.log(err);
+                    
+                    res.json(200,{
+                        success:true,
+                        status:200,
+                    })
+                })
+            })
+
+            form.on('file',function(name,files){
+                
+            })
+        }
+
+        
+    })
+})
+
+api("/message/list",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode = jwt.verify(token,secreet)
+        let username = decode.user[0].username
+        
+        let sql = `SELECT group_message.id, group_message.from_id,group_message.to_id, from_user.username as from_username ,to_user.username as to_username FROM group_message INNER JOIN users as from_user ON group_message.from_id = from_user.id INNER JOIN users as to_user ON group_message.to_id = to_user.id  WHERE from_id=${decode.user[0].id} AND count_message <> 0 OR to_id=${decode.user[0].id} AND count_message <> 0`
+        con.query(sql,function(err,result){
+            if(err)console.log(err);
+
+            for(let results in result){
+                if(username == result[results].from_username){
+                    result[results].target = result[results].to_username
+                }else{
+                    result[results].target = result[results].from_username
+                    
+                }
+            }
+
+            for(let results in result){
+                if(username == result[results].from_username){
+                    result[results].target_id = result[results].to_id
+                }else{
+                    result[results].target_id = result[results].from_id
+                    
+                }
+            }
+            return res.json(200,result)
+        })
+    })
+})
+
+api("/message/list/user/:id",function(req,res){
+    verifyToken(req,res,function(token){
+       
+        
+        if(req.methods == 'GET'){
+            let decode = jwt.verify(token,secreet);
+            let sql = `SELECT * FROM group_message INNER JOIN chat ON group_message.id = chat.group_id WHERE chat.user_id=${decode.user[0].id} AND chat.to_id=${req.params.id} OR chat.user_id=${req.params.id} AND chat.to_id=${decode.user[0].id} ORDER BY chat.created_at ASC`
+            con.query(sql,function(err,result){
+                if(err)console.log(err);
+               
+                return res.json(200,result)
+            })
+        }
+        else if(req.methods == 'POST'){
+            
+                let decode = jwt.verify(token,secreet);
+                function checkGroup(){
+                    let sql = `SELECT * FROM group_message WHERE from_id=${decode.user[0].id} AND to_id=${req.params.id} OR from_id=${req.params.id} AND to_id=${decode.user[0].id} LIMIT 1`
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,function(err,result){
+                            if(err) console.log(err);
+                            
+                            resolve(result)
+                        })
+                    })
+
+                    return sql_promise
+                }
+
+                function insertGroup()
+                {
+
+                    let insert_input = {
+                        from_id:decode.user[0].id,
+                        to_id:req.params.id
+                    }
+                    let insert_sql = `INSERT INTO group_message SET ?`
+                    let insert = new Promise(function(resolve,reject){
+                        con.query(insert_sql,insert_input,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+                    return insert
+                }
+
+                function checkNewGroup()
+                {
+                    let insert_promise = new Promise(function(resolve,reject){
+                        con.query(`SELECT * FROM group_message WHERE from_id=${decode.user[0].id} AND to_id=${req.params.id} OR from_id=${req.params.id} AND to_id=${decode.user[0].id} ORDER BY id DESC LIMIT 1`,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+
+                    return insert_promise
+                }
+
+                async function execution()
+                {
+                    let check_group = await checkGroup()
+
+                    if(check_group[0] == undefined){
+                        let insert_group = await insertGroup()
+                        let check_new_group = await checkNewGroup()
+
+                        return check_new_group
+                    }else{
+                        return check_group
+                    }
+                }
+
+                execution()
+                .then(function(data){
+                    console.log(data);
+                    
+                    let json = {
+                        group_id:data[0].id,
+                        success:true,
+                        status:200
+                    }
+                    return res.json(200,json)
+                })
+                .catch(function(err){
+                    console.log(err);
+                    
+                })         
+        }
+    })
+})
+
+api("/message/broadcast",function(req,res){
+    verifyToken(req,res,function(token){
+        if(req.methods == 'POST')
+        {
+            req.on('data',function(data){
+                let decode = jwt.verify(token,secreet);
+                let json = qs.parse(data.toString())
+                console.log(json);
+                
+                function checkGroup(args){
+                    let sql = `SELECT group_message.id as group_id, to_id, username FROM group_message INNER JOIN users ON group_message.to_id = users.id  WHERE from_id=${decode.user[0].id} AND to_id=${args} OR from_id=${args} AND to_id=${decode.user[0].id} LIMIT 1`
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+                    return sql_promise
+                }
+
+                function insertGroup(args)
+                {
+
+                    let insert_input = {
+                        from_id:decode.user[0].id,
+                        to_id:args
+                    }
+                    let insert_sql = `INSERT INTO group_message SET ?`
+                    let insert = new Promise(function(resolve,reject){
+                        con.query(insert_sql,insert_input,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+                    return insert
+                }
+
+                function checkNewGroup(args)
+                {
+                    let insert_promise = new Promise(function(resolve,reject){
+                        con.query(`SELECT group_message.id as group_id , to_id, username FROM group_message INNER JOIN users ON group_message.to_id = users.id WHERE from_id=${decode.user[0].id} AND to_id=${args} OR from_id=${args} AND to_id=${decode.user[0].id} ORDER BY id DESC LIMIT 1`,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result[0])
+                        })
+                    })
+
+                    return insert_promise
+                }
+
+                async function execution()
+                {
+                    let check_group
+                    let group_chat = []
+                    let users_id = json.users
+                    if(users_id.isArray)
+                    {
+                        for (let index = 0; index < json.users.length; index++) {
+                        
+                            check_group  = await checkGroup(json.users[index])
+                            if(check_group[0] == undefined){
+                                let insert_group = await insertGroup(json.users[index])
+                                let check_new_group = await checkNewGroup(json.users[index])
+    
+                                 group_chat.push(check_new_group)
+                            }else{
+                                 group_chat.push(check_group[0])
+                            }
+                        }
+                    }else{
+                        check_group  = await checkGroup(users_id)
+                            if(check_group[0] == undefined){
+                                let insert_group = await insertGroup(users_id)
+                                let check_new_group = await checkNewGroup(users_id)
+    
+                                 group_chat.push(check_new_group)
+                            }else{
+                                 group_chat.push(check_group[0])
+                            }
+                    }
+                    
+
+                    return group_chat
+                    
+                }
+
+                execution()
+                    .then(function(data){
+                        console.log( data);
+                        let json = {
+                            group_id:data,
+                            success:true,
+                            status:200
+                        }
+                        return res.json(200,json)
+                    })
+                    .catch(function(err){
+                        console.log(err);
+                        
+                    })  
+            })
+        }
+    })
+})
+
+api("/message/broadcast/referal",function(req,res){
+    verifyToken(req,res,function(token){
+        if(req.methods == 'GET')
+        {
+            
+                let decode = jwt.verify(token,secreet);
+             
+                function selectReferal()
+                {
+                    let sql = `SELECT user_id FROM figure_relation WHERE figure_id=${decode.user[0].id}`
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+                    return sql_promise
+                }
+
+                function checkGroup(args){
+                    let sql = `SELECT id as group_id, to_id FROM group_message WHERE from_id=${decode.user[0].id} AND to_id=${args} OR from_id=${args} AND to_id=${decode.user[0].id} LIMIT 1`
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+                    return sql_promise
+                }
+
+                function insertGroup(args)
+                {
+
+                    let insert_input = {
+                        from_id:decode.user[0].id,
+                        to_id:args
+                    }
+                    let insert_sql = `INSERT INTO group_message SET ?`
+                    let insert = new Promise(function(resolve,reject){
+                        con.query(insert_sql,insert_input,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+                    return insert
+                }
+
+                function checkNewGroup(args)
+                {
+                    let insert_promise = new Promise(function(resolve,reject){
+                        con.query(`SELECT group_message.id as group_id , to_id FROM group_message WHERE from_id=${decode.user[0].id} AND to_id=${args} OR from_id=${args} AND to_id=${decode.user[0].id} ORDER BY id DESC LIMIT 1`,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result[0])
+                        })
+                    })
+
+                    return insert_promise
+                }
+
+                async function execution()
+                {
+                    let check_group
+                    let group_chat = []
+                    let select_referal = await selectReferal()
+                    for (let index = 0; index < select_referal.length; index++) {
+                        
+                        check_group  = await checkGroup(select_referal[index].user_id)
+                        if(check_group[0] == undefined){
+                            let insert_group = await insertGroup(select_referal[index].user_id)
+                            let check_new_group = await checkNewGroup(select_referal[index].user_id)
+
+                             group_chat.push(check_new_group)
+                        }else{
+                             group_chat.push(check_group[0])
+                        }
+                    }
+
+                    return group_chat
+                    
+                }
+
+                execution()
+                    .then(function(data){
+                        console.log(data);
+                        let json = {
+                            group_id:data,
+                            success:true,
+                            status:200
+                        }
+                        return res.json(200,json)
+                    })
+                    .catch(function(err){
+                        console.log(err);
+                        
+                    })  
+        }
+    })
+})
+api("/message/broadcast/referal/asisten",function(req,res){
+    verifyToken(req,res,function(token){
+        if(req.methods == 'GET')
+        {
+            
+                let decode = jwt.verify(token,secreet);
+             
+                function selectReferal()
+                {
+                    let sql = `SELECT user_id FROM figure_relation WHERE asisten_id=${decode.user[0].id}`
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+                    return sql_promise
+                }
+
+                function checkGroup(args){
+                    let sql = `SELECT id as group_id, to_id FROM group_message WHERE from_id=${decode.user[0].id} AND to_id=${args} OR from_id=${args} AND to_id=${decode.user[0].id} LIMIT 1`
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+                    return sql_promise
+                }
+
+                function insertGroup(args)
+                {
+
+                    let insert_input = {
+                        from_id:decode.user[0].id,
+                        to_id:args
+                    }
+                    let insert_sql = `INSERT INTO group_message SET ?`
+                    let insert = new Promise(function(resolve,reject){
+                        con.query(insert_sql,insert_input,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+                    return insert
+                }
+
+                function checkNewGroup(args)
+                {
+                    let insert_promise = new Promise(function(resolve,reject){
+                        con.query(`SELECT group_message.id as group_id , to_id FROM group_message WHERE from_id=${decode.user[0].id} AND to_id=${args} OR from_id=${args} AND to_id=${decode.user[0].id} ORDER BY id DESC LIMIT 1`,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result[0])
+                        })
+                    })
+
+                    return insert_promise
+                }
+
+                async function execution()
+                {
+                    let check_group
+                    let group_chat = []
+                    let select_referal = await selectReferal()
+                    for (let index = 0; index < select_referal.length; index++) {
+                        
+                        check_group  = await checkGroup(select_referal[index].user_id)
+                        if(check_group[0] == undefined){
+                            let insert_group = await insertGroup(select_referal[index].user_id)
+                            let check_new_group = await checkNewGroup(select_referal[index].user_id)
+
+                             group_chat.push(check_new_group)
+                        }else{
+                             group_chat.push(check_group[0])
+                        }
+                    }
+
+                    return group_chat
+                    
+                }
+
+                execution()
+                    .then(function(data){
+                        console.log(data);
+                        let json = {
+                            group_id:data,
+                            success:true,
+                            status:200
+                        }
+                        return res.json(200,json)
+                    })
+                    .catch(function(err){
+                        console.log(err);
+                        
+                    })  
+        }
+    })
+})
+api("/message/group",function(){
+    verifyToken(req,res,function(token){
+        let decode = jwt.verify(secreet,token)
+        if(req.methods == 'POST')
+        {
+            req.on('data',function(data){
+                let json = qs.parse(data.toString())
+
+                function insertGroup()
+                {
+                    let insert = {
+                        name:json.name,
+                        user_id:decode.user[0].id
+                    }
+                    let sql = `INSERT INTO group_chat SET ? `
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql_promise,insert,function(err,result){
+                            if(err) console.log();
+                            
+                            resolve(result)
+                        })
+                    })
+
+                    return sql_promise
+                }
+
+                function insertUser(group_id,user_id)
+                {
+                    let insert = {
+                        group_id:group_id,
+                        user_id:user_id
+                    }
+
+                    let sql = `INSERT INTO group_chat_relation SET ?`
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,insert,function(err,result){
+                            if(err) console.log(err);
+                            resolve(result)
+                        })
+                    })
+
+                    return sql_promise
+                }
+            })
+        }
+    })
+})
+
+api("/message/broadcast/follower/list",function(req,res){
+    verifyToken(req,res,function(token){
+        let decode = jwt.verify(token,secreet)
+        if(req.methods == 'GET')
+        {
+            function getListFollower()
+            {
+                let sql = `SELECT users.id,username, first_name, last_name FROM follow LEFT JOIN users ON follow.user_id = users.id LEFT JOIN profile ON users.id = profile.user_id WHERE follow.followed_id = ${decode.user[0].id}`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);    
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+
+            async function execute()
+            {
+                let get_list_follower = await getListFollower(); 
+
+                return get_list_follower
+            }
+
+            execute()
+                .then(function(data){
+                    res.json(200,data)
+                })
+        }
+        if(req.methods == 'POST')
+        {
+            req.on('data',function(data){
+                let json = qs.parse(data.toString())
+                
+                function insertFollower(args)
+                {
+                    let insert = {
+                        from_id:decode.user[0].id,
+                        to_id:args
+                    }
+                    let sql = `INSERT INTO group_message SET ?`
+
+                    let sql_promise = new Promise(function(resolve,reject){
+                        con.query(sql,insert,function(err,result){
+                            if(err) console.log(err);
+                            
+                            resolve(result.insertId)
+                        })
+                    })
+
+                    return sql_promise
+                }
+
+                async function execute()
+                {
+                    let array_data = []
+
+                    for(let i = 0; i < json.array_id.length; i ++)
+                    {
+                        array_data.push(await insertFollower(json.array_id[i]))
+                    }
+
+                    return array_data
+                }
+
+                execute()
+                    .then(function(data){
+                        res.json(200,{
+                            group:data
+                        })
+                    })
+            })
+        }
+    })
+})
+// role
+api("/change/password",function(req,res){
+    verifyToken(req,res,function(token){
+        req.on('data',function(data){
+            let decode = jwt.verify(token,secreet)
+            let json   =  qs.parse(data.toString())
+            function getPassword()
+            {
+                let sql = `SELECT password FROM users WHERE id=${decode.user[0].id} LIMIT 1`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err) console.log(err);
+                        let password = bdecrypt(result[0].password)
+                        console.log(password);
+                        
+                        resolve(password)
+                    })
+                })
+    
+                return sql_promise
+            }
+            function changePassword(args)
+            {
+                let insert = {
+                    password:bcrypt(args)
+                }
+                let sql = `UPDATE users SET ? WHERE id=${decode.user[0].id}`
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,insert,function(err,result){
+                        if(err) console.log(err);
+                        
+                    })
+                })
+            }
+    
+            async function execute()
+            {
+                
+                let get_password = await getPassword()
+                console.log(json.old_password);
+                if(json.old_password != get_password){
+                    return "Maaf password anda tidak sama"
+                    
+                }
+
+                changePassword(json.new_password)
+                return "berhasil mengganti password"
+            }
+
+            execute()
+                .then(function(data){
+                    res.json(200,{
+                        status:200,
+                        message:data
+                    })
+                })
+                .catch(function(err){
+                    res.json(401,{
+                        status:401,
+                        message:err
+                    })
+                })
+        })
+ 
+    })
+})
+// reset password
+api("/reset/password",function(req,res){
+    if(req.methods == 'POST')
+    {
+        req.on('data',function(data){
+            let json = qs.parse(data.toString())
+            let select = `SELECT email,activate_code FROM users WHERE email='${json.email}'`
+            con.query(select,function(err,result){
+                if(err) console.log(err) 
+                if(result[0] == undefined){
+                    return res.json(200,{
+                        status:200,
+                        success:false,
+                        message:'Email tidak ada'
+                    })
+                }
+                let random_number = Math.floor((Math.random() * 50000 ) + 10000);
+                
+                let update = {
+                    activate_code: random_number,
+                }
+
+                let sql_update = `UPDATE users SET ? WHERE email='${result[0].email}'`
+                con.query(sql_update,update,function(err,re){
+                    if(err) console.log(err);
+                    var mailOptions = {
+                        from: 'linkez',
+                        to: `${result[0].email}`,
+                        subject: 'Reset password',
+                        text: `masukan kode aktifasi pada reset password ${random_number}`
+                      };
+    
+                      transporter.sendMail(mailOptions, function(error, info){
+                        if (error) {
+                          console.log(error);
+                        } else {
+                          console.log('Email sent: ' + info.response);
+                        }
+                    })
+                    return res.json(200,{
+                        status:200,
+                        success:true,
+                        message:'Berhasil kirim ke email'
+                    })
+                })
+            })
+        })
+    }else if(req.methods == 'PUT'){
+        req.on('data',function(data){
+            let json = qs.parse(data.toString())
+            let insert = {
+                password:bcrypt(json.password)
+            }
+            let update_sql = `UPDATE users SET ? WHERE activate_code=${json.activate_code}`
+            con.query(update_sql,insert,function(err,result){
+               
+                console.log(err);
+                
+                if(err){
+                    res.json(200,{
+                        status:401,
+                        success:false,
+                        message:'Maaf aktifasi kode anda salah'
+                    })
+                }
+                
+                return res.json(200,{
+                    status:200,
+                    success:true,
+                    message:'Berhasil mengubah password'
+                })
+            })
+        })
+    }
+})
+
+
+
+
+
+// listen
+var server =  run(8000, function (listen,server) {
+    console.log('run 8000');
+    
+    let IO = get_socket(server)
+
+    IO.on('connection',function(socket){
+        console.log();
+        console.log("connection");
+        
+
+
+        socket.on('message',function(data){
+            
+            
+            var pastDateTime = datetime.create();
+            var now = pastDateTime.format("Y-m-d H:M:S")
+            console.log(now);
+            let user_id = data.user_id
+            data['created_at'] = now.toString()
+            
+            
+            
+            function checkGroup()
+            {
+                let sql_check_group_message = `SELECT * FROM group_message WHERE from_id=${data.user_id} AND to_id=${data.to_id} OR  from_id=${data.to_id} AND to_id=${data.user_id} LIMIT 1`
+                let sql = new Promise(function(resolve,reject){
+                    con.query(sql_check_group_message,function(err,result){
+                        if(err) console.log(err);
+
+                        if(result != undefined){
+                            return  resolve(result)
+                        } 
+
+                        return resolve(result)
+
+                    })
+                })
+
+                return sql
+                
+            }
+
+            function insertGroup(from_id,to_id)
+            {
+                let sql_input = {
+                    from_id:from_id,
+                    to_id:to_id
+                }
+                let sql = `INSERT INTO group_message SET ?`
+                let promise_sql = new Promise(function(resolve,reject){
+                    con.query(sql,sql_input,function(err,result){
+                        if(err) console.log(err);
+                        
+                        
+                    })
+                })
+                let get_data = `SELECT * FROM group_message ORDER BY id DESC LIMIT 1`
+
+                let get_id = new Promise(function(resolve,reject){
+                    con.query(get_data,function(err,result){
+                        if(err) console.log(err);
+                        
+                        resolve(result)
+                    })
+                })
+
+                return get_id
+            }
+
+            function getGroup(from_id,to_id)
+            {
+                let sql = `SELECT * FROM group_message WHERE from_id=${from_id} AND to_id=${to_id} OR from_id=${to_id} AND to_id=${from_id}`
+
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err)console.log(err);
+                        
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+            function insertMessage(from_id,to_id,group_id,message)
+            {
+                var pastDateTime = datetime.create();
+                var now = pastDateTime.format("Y-m-d H:M:S")
+                let sql_input = {
+                    user_id:from_id,
+                    to_id:to_id,
+                    group_id:group_id,
+                    message:message,
+                    is_exist_file:data.is_exist_file,
+                }
+                if(data.base64_field){
+                    function makeid() {
+                        var text = "";
+                        var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+                      
+                        for (var i = 0; i < 5; i++)
+                          text += possible.charAt(Math.floor(Math.random() * possible.length));
+                      
+                        return text;
+                      }
+                    let path_file = `${__dirname}/storage/public/users/${data.username}/chat`
+                    if(!fs.existsSync(path_file)){
+                        fs.mkdirSync(path_file)
+                    }
+                    let name = makeid()
+                    let full_path = `${__dirname}/storage/public/users/${data.username}/chat/${name}.png`
+                    fs.writeFileSync(full_path,data.base64_field,{encoding:'base64'}),
+                    sql_input['path_file'] = full_path
+
+                }   
+                var sql_promise
+                let sql = `INSERT INTO chat SET ?`
+                let insert_count_message = `UPDATE  group_message SET count_message = count_message + 1 WHERE id=${group_id}`
+                con.query(insert_count_message,function(err,result){
+                    if(err)console.log(err);
+                    
+                })
+                sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,sql_input,function(err,result){
+                        if(err) console.log(err);
+                    
+                        
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+            async function execute()
+            {
+                let check_group = await checkGroup();
+
+                if(data.message == undefined){ 
+                    data.message = ''
+                }
+                let message;
+               if(check_group[0] == undefined){
+                    let insert_group = await insertGroup(data.user_id,data.to_id);
+                    let insert_message = await insertMessage(data.user_id,data.to_id,insert_group[0].id,data.message)
+                    data['group_id'] = insert_group[0].id
+                    // console.log(insert_message);
+                    message = insert_message
+                }else{
+                    let get_group = await getGroup(data.user_id,data.to_id)
+                    data['group_id'] = get_group[0].id                   
+                    let insert_message = await insertMessage(data.user_id,data.to_id,get_group[0].id,data.message)                    
+                    // console.log(insert_message);
+                   message = insert_message
+                }
+                data['chat_id'] = message.insertId;
+                
+                IO.sockets.emit(`receive-${data.group_id}`,data)
+                IO.sockets.emit(`notification-${data.to_id}`,data)
+                
+
+                
+                console.log(data.to_id);
+                let sql = `SELECT * FROM users WHERE id=${data.user_id} LIMIT 1`
+                // con.query(sql,function(err,result){
+                //     if(err) console.log(err);
+                //     let user = {
+                //         target_username:result[0].username,
+                //         target_user_id:data.to_id,
+                //         target_group_id:data.group_id,
+                //         message:data.message
+                //     }
+                //     request.get('http://localhost:8000/api/search/profile/photo/' + data.user_id, function (error, response, body) {
+                //         if (!error && response.statusCode == 200) {
+                //             let photo = new Buffer(body).toString('base64');
+                            
+                //             console.log(photo);
+                //             user.photo = photo
+                            
+                //         }
+                //     });
+                // })
+  
+            }   
+
+            execute()
+                .catch(function(err){
+                    console.log(err);
+                    
+                })
+        })
+        socket.on('message-file',function(data){
+            var pastDateTime = datetime.create();
+            var now = pastDateTime.format("Y-m-d H:M:S")
+            console.log(now);
+            let user_id = data.user_id
+            data['created_at'] = now.toString()
+            
+            
+            
+            function checkGroup()
+            {
+                let sql_check_group_message = `SELECT * FROM group_message WHERE from_id=${data.user_id} AND to_id=${data.to_id} OR  from_id=${data.to_id} AND to_id=${data.user_id} LIMIT 1`
+                let sql = new Promise(function(resolve,reject){
+                    con.query(sql_check_group_message,function(err,result){
+                        if(err) console.log(err);
+
+                        if(result != undefined){
+                            return  resolve(result)
+                        } 
+
+                        return resolve(result)
+
+                    })
+                })
+
+                return sql
+                
+            }
+
+            function insertGroup(from_id,to_id)
+            {
+                let sql_input = {
+                    from_id:from_id,
+                    to_id:to_id
+                }
+                let sql = `INSERT INTO group_message SET ?`
+                let promise_sql = new Promise(function(resolve,reject){
+                    con.query(sql,sql_input,function(err,result){
+                        if(err) console.log(err);
+                        
+                        
+                    })
+                })
+                let get_data = `SELECT * FROM group_message ORDER BY id DESC LIMIT 1`
+
+                let get_id = new Promise(function(resolve,reject){
+                    con.query(get_data,function(err,result){
+                        if(err) console.log(err);
+                        
+                        resolve(result)
+                    })
+                })
+
+                return get_id
+            }
+
+            function getGroup(from_id,to_id)
+            {
+                let sql = `SELECT * FROM group_message WHERE from_id=${from_id} AND to_id=${to_id} OR from_id=${to_id} AND to_id=${from_id}`
+
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err)console.log(err);
+                        
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+            function insertMessage(from_id,to_id,group_id,message)
+            {
+                var pastDateTime = datetime.create();
+                var now = pastDateTime.format("Y-m-d H:M:S")
+                let sql_input = {
+                    user_id:from_id,
+                    to_id:to_id,
+                    group_id:group_id,
+                    message:message,
+                    is_exist_file:data.is_exist_file,
+                }
+                if(data.base64_field){
+                    function makeid() {
+                        var text = "";
+                        var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+                      
+                        for (var i = 0; i < 5; i++)
+                          text += possible.charAt(Math.floor(Math.random() * possible.length));
+                      
+                        return text;
+                      }
+                    let path_file = `${__dirname}/storage/public/users/${data.username}/chat`
+                    if(!fs.existsSync(path_file)){
+                        fs.mkdirSync(path_file)
+                    }
+                    let name = makeid()
+                    let full_path = `${__dirname}/storage/public/users/${data.username}/chat/${name}.png`
+                    fs.writeFileSync(full_path,data.base64_field,{encoding:'base64'}),
+                    sql_input['path_file'] = full_path
+
+                }   
+                var sql_promise
+                let sql = `INSERT INTO chat SET ?`
+                let insert_count_message = `UPDATE  group_message SET count_message = count_message + 1 WHERE id=${group_id}`
+                con.query(insert_count_message,function(err,result){
+                    if(err)console.log(err);
+                    
+                })
+                sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,sql_input,function(err,result){
+                        if(err) console.log(err);
+                    
+                        
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+            async function execute()
+            {
+                let check_group = await checkGroup();
+
+                if(data.message == undefined){
+                    
+                    data.message = ''
+                }
+                let message;
+               if(check_group[0] == undefined){
+                    let insert_group = await insertGroup(data.user_id,data.to_id);
+                    let insert_message = await insertMessage(data.user_id,data.to_id,insert_group[0].id,data.message)
+                    data['group_id'] = insert_group[0].id
+                    // console.log(insert_message);
+                    message = insert_message
+                }else{
+                    let get_group = await getGroup(data.user_id,data.to_id)
+                    data['group_id'] = get_group[0].id                   
+                    let insert_message = await insertMessage(data.user_id,data.to_id,get_group[0].id,data.message)                    
+                    // console.log(insert_message);
+                   message = insert_message
+                }
+
+                data['chat_id'] = message.insertId;
+                console.log(data);
+
+                IO.sockets.emit(`notification-${data.to_id}`,data)                
+                IO.sockets.emit(`receive-${data.group_id}`,data)
+            } 
+
+            execute()
+        })
+        socket.on('is-read',function(data){
+            IO.sockets.emit(`is-read-${data.group_id}`,data)
+        })
+
+        socket.on('comments',function(data){
+            
+            function insertComments()
+            {
+                let insert = {
+                    timeline_id:data.timeline_id,
+                    user_id:data.user_id,
+                    comments:data.comments
+                }
+
+                let sql = `INSERT INTO comments SET ? `
+                con.query(sql,insert,function(err){
+                    if(err) console.log(err);
+                })
+            }
+
+            insertComments()
+            
+
+            
+
+            con.query(`SELECT * FROM comments WHERE timeline_id=${data.timeline_id} ORDER BY id DESC LIMIT 1`,function(err,result){
+                if(err) console.log(err);
+                data.id = result[0].id
+                data.created_at = moment(result[0].created_at,'Y-m-d H:M:S').fromNow() 
+                IO.sockets.emit(`receive-comments-${data.timeline_id}`,data)
+            })
+        })
+
+        socket.on("new-comments",function(data){
+            let sql_insert = {
+                comments:data.comments,
+                timeline_id:data.timeline_id,
+                user_id:data.user_id
+            }
+            let sql = `INSERT INTO comments SET ?`
+            con.query(sql,sql_insert,function(err,result){
+                if(err) console.log(err);
+                
+            })
+            let sql_count = `SELECT COUNT(id) AS comments_total FROM comments WHERE timeline_id=${data.timeline_id} AND comments_id IS NULL`
+            con.query(sql_count,function(err,result){
+                if(err) console.log(err);
+                data.comments_total = result[0].comments_total
+                IO.sockets.emit(`new-comments-${data.timeline_id}`,data)
+            })
+        })
+
+        socket.on("reply-comments",function(data){
+            let sql_insert = {
+                comments:data.comments,
+                timeline_id:data.timeline_id,
+                user_id:data.user_id,
+                comments_id:data.comment_id,
+                
+            }
+            let sql = `INSERT INTO comments SET ?`
+            con.query(sql,sql_insert,function(err,result){
+                if(err) console.log(err); 
+            })
+            console.log(data);
+            con.query(`SELECT * FROM comments WHERE comments_id=${data.comment_id} ORDER BY id DESC LIMIT 1`,function(err,result){
+                if(err) console.log(err);
+                data.id = result[0].id
+                data.created_at = moment(result[0].created_at,'Y-m-d H:M:S').fromNow() 
+             
+                IO.sockets.emit(`reply-comments-${data.comment_id}`,data)
+            })
+        })
+
+        socket.on('broadcast',function(data){
+            var pastDateTime = datetime.create();
+            var now = pastDateTime.format("Y-m-d H:M:S")
+           
+            let user_id = data.user_id
+            data['created_at'] = now.toString()
+            
+            
+            
+            function checkGroup(to_id)
+            {
+                // console.log("user id" + data.user_id);
+                
+                let sql_check_group_message = `SELECT * FROM group_message WHERE from_id=${data.user_id} AND to_id=${to_id} OR  from_id=${to_id} AND to_id=${data.user_id} LIMIT 1`
+                let sql = new Promise(function(resolve,reject){
+                    con.query(sql_check_group_message,function(err,result){
+                        if(err) console.log(err); 
+                         resolve(result)
+                        //  console.log("data adalah" + result[0]);
+                         
+                    })
+                })
+
+                return sql
+                
+            }
+
+            function insertGroup(from_id,to_id)
+            {
+                let sql_input = {
+                    from_id:from_id,
+                    to_id:to_id
+                }
+                let sql = `INSERT INTO group_message SET ?`
+                let promise_sql = new Promise(function(resolve,reject){
+                    con.query(sql,sql_input,function(err,result){
+                        if(err) console.log(err);
+                        
+                        
+                    })
+                })
+                let get_data = `SELECT * FROM group_message ORDER BY id DESC LIMIT 1`
+
+                let get_id = new Promise(function(resolve,reject){
+                    con.query(get_data,function(err,result){
+                        if(err) console.log(err);
+                        
+                        resolve(result)
+                    })
+                })
+
+                return get_id
+            }
+
+            function getGroup(from_id,to_id)
+            {
+                let sql = `SELECT * FROM group_message WHERE from_id=${from_id} AND to_id=${to_id} OR from_id=${to_id} AND to_id=${from_id}`
+
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err)console.log(err);
+                        
+                        if(result[0] != undefined){
+                            
+                            return resolve(result)
+                        }else {
+                            result[0] = undefined
+                            return resolve(result)
+                        }
+                    })
+                })
+
+                return sql_promise
+            }
+
+            function insertMessage(from_id,to_id,group_id,message)
+            {
+                var pastDateTime = datetime.create();
+                var now = pastDateTime.format("Y-m-d H:M:S")
+                let sql_input = {
+                    user_id:from_id,
+                    to_id:to_id,
+                    group_id:group_id,
+                    message:message,
+                    is_exist_file:data.is_exist_file,
+                }
+                if(data.base64_field){
+                    function makeid() {
+                        var text = "";
+                        var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+                      
+                        for (var i = 0; i < 5; i++)
+                          text += possible.charAt(Math.floor(Math.random() * possible.length));
+                      
+                        return text;
+                      }
+                    let path_file = `${__dirname}/storage/public/users/${data.username}/chat`
+                    if(!fs.existsSync(path_file)){
+                        fs.mkdirSync(path_file)
+                    }
+                    let name = makeid()
+                    let full_path = `${__dirname}/storage/public/users/${data.username}/chat/${name}.png`
+                    fs.writeFileSync(full_path,data.base64_field,{encoding:'base64'}),
+                    sql_input['path_file'] = full_path
+
+                }   
+                var sql_promise
+                let sql = `INSERT INTO chat SET ?`
+                let insert_count_message = `UPDATE  group_message SET count_message = count_message + 1 WHERE id=${group_id}`
+                con.query(insert_count_message,function(err,result){
+                    if(err)console.log(err);
+                    
+                })
+                sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,sql_input,function(err,result){
+                        if(err) console.log(err);
+                    
+                        
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+            async function send(to_id)
+            {
+                
+                
+                let check_group = await checkGroup(to_id);
+                console.log(check_group[0]);
+                
+                if(data.message == undefined){
+                    
+                    data.message = ''
+                }
+                let message;
+               if(check_group[0] == undefined){
+                    let insert_group = await insertGroup(data.user_id,to_id);
+                    let insert_message = await insertMessage(data.user_id,to_id,insert_group[0].id,data.message)
+                    data['group_id'] = insert_group[0].id
+                    // console.log(insert_message);
+                    message = insert_message
+                    data['id'] = message.insertId;
+                    data['to_id'] = to_id
+                    data['username'] = data['username']
+                    data['message'] = data['message']
+                    data['from_id'] = data.user_id
+                    data['is_exist_file'] = data['is_exist_file']
+                    data['chat_id'] = message.insertId;
+                    
+            
+
+                    IO.sockets.emit(`receive-${data.group_id}`,data)
+                    
+                    IO.sockets.emit(`notification-${data.to_id}`,data) 
+                    return   
+                }else if(check_group[0] != undefined){
+                    let get_group = await getGroup(data.user_id,to_id)
+                    data['group_id'] = get_group[0].id                   
+                    let insert_message = await insertMessage(data.user_id,to_id,get_group[0].id,data.message)                    
+                    // console.log(insert_message);
+                   message = insert_message
+                   data['id'] = message.insertId;
+                    data['to_id'] = to_id
+                    data['username'] = data['username']
+                    data['message'] = data['message']
+                    data['from_id'] = data.user_id
+                    data['is_exist_file'] = data['is_exist_file']
+                    data['chat_id'] = message.insertId;
+                    
+            
+
+                    IO.sockets.emit(`receive-${data.group_id}`,data)
+                    
+                    IO.sockets.emit(`notification-${data.to_id}`,data)  
+                    return  
+                }
+
+                            
+            } 
+
+            function execute()
+            {
+                for (let index = 0; index < data.array_to_id.length; index++) {
+                    send(data.array_to_id[index])
+                    console.log(data.array_to_id[index]);    
+                }
+            }
+
+            execute()
+            
+        })
+
+        socket.on('broadcast-referal',function(data){
+            var pastDateTime = datetime.create();
+            var now = pastDateTime.format("Y-m-d H:M:S")
+            console.log(data);
+            let user_id = data.user_id
+            data['created_at'] = now.toString()
+            
+            
+            
+            function checkGroup(to_id)
+            {
+                let sql_check_group_message = `SELECT * FROM group_message WHERE from_id=${data.user_id} AND to_id=${to_id} OR  from_id=${to_id} AND to_id=${data.user_id} LIMIT 1`
+                let sql = new Promise(function(resolve,reject){
+                    con.query(sql_check_group_message,function(err,result){
+                        if(err) console.log(err);
+
+                        if(result != undefined){
+                            return  resolve(result)
+                        } 
+
+                        return resolve(result)
+
+                    })
+                })
+
+                return sql
+                
+            }
+
+            function insertGroup(from_id,to_id)
+            {
+                let sql_input = {
+                    from_id:from_id,
+                    to_id:to_id
+                }
+                let sql = `INSERT INTO group_message SET ?`
+                let promise_sql = new Promise(function(resolve,reject){
+                    con.query(sql,sql_input,function(err,result){
+                        if(err) console.log(err);
+                        
+                        
+                    })
+                })
+                let get_data = `SELECT * FROM group_message ORDER BY id DESC LIMIT 1`
+
+                let get_id = new Promise(function(resolve,reject){
+                    con.query(get_data,function(err,result){
+                        if(err) console.log(err);
+                        
+                        resolve(result)
+                    })
+                })
+
+                return get_id
+            }
+
+            function getGroup(from_id,to_id)
+            {
+                let sql = `SELECT * FROM group_message WHERE from_id=${from_id} AND to_id=${to_id} OR from_id=${to_id} AND to_id=${from_id}`
+
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err)console.log(err);
+                        
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+            function insertMessage(from_id,to_id,group_id,message)
+            {
+                var pastDateTime = datetime.create();
+                var now = pastDateTime.format("Y-m-d H:M:S")
+                let sql_input = {
+                    user_id:from_id,
+                    to_id:to_id,
+                    group_id:group_id,
+                    message:message,
+                    is_exist_file:data.is_exist_file,
+                }
+                if(data.base64_field){
+                    function makeid() {
+                        var text = "";
+                        var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+                      
+                        for (var i = 0; i < 5; i++)
+                          text += possible.charAt(Math.floor(Math.random() * possible.length));
+                      
+                        return text;
+                      }
+                    let path_file = `${__dirname}/storage/public/users/${data.username}/chat`
+                    if(!fs.existsSync(path_file)){
+                        fs.mkdirSync(path_file)
+                    }
+                    let name = makeid()
+                    let full_path = `${__dirname}/storage/public/users/${data.username}/chat/${name}.png`
+                    fs.writeFileSync(full_path,data.base64_field,{encoding:'base64'}),
+                    sql_input['path_file'] = full_path
+
+                }   
+                var sql_promise
+                let sql = `INSERT INTO chat SET ?`
+                let insert_count_message = `UPDATE  group_message SET count_message = count_message + 1 WHERE id=${group_id}`
+                con.query(insert_count_message,function(err,result){
+                    if(err)console.log(err);
+                    
+                })
+                sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,sql_input,function(err,result){
+                        if(err) console.log(err);
+                    
+                        
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+            async function send(to_id)
+            {
+                
+                
+                let check_group = await checkGroup(to_id);
+
+                if(data.message == undefined){
+                    
+                    data.message = ''
+                }
+                let message;
+               if(check_group[0] == undefined){
+                    let insert_group = await insertGroup(data.user_id,to_id);
+                    let insert_message = await insertMessage(data.user_id,to_id,insert_group[0].id,data.message)
+                    data['group_id'] = insert_group[0].id
+                    // console.log(insert_message);
+                    message = insert_message
+                }else{
+                    let get_group = await getGroup(data.user_id,to_id)
+                    data['group_id'] = get_group[0].id                   
+                    let insert_message = await insertMessage(data.user_id,to_id,get_group[0].id,data.message)                    
+                    // console.log(insert_message);
+                   message = insert_message
+                }
+
+                data['id'] = message.insertId;
+             
+                data['to_id'] = to_id
+                data['username'] = data['username']
+                data['message'] = data['message']
+                data['from_id'] = data.user_id
+                data['is_exist_file'] = data['is_exist_file']
+                console.log(data);
+                
+                IO.sockets.emit(`receive-${data.group_id}`,data)
+                IO.sockets.emit(`notification-${data.to_id}`,data)  
+
+            } 
+
+            async function execute()
+            {
+                let sql = `SELECT * WHERE figure_id=${data.figure_id}`
+                con.query(sql,function(err,result){
+                    if(err) console.log(err);
+                    for (const key in result) {
+                        send(result[index].user_id)   
+                        console.log(result[index].user_id);  
+                    }
+                })
+            }
+
+            execute()
+        })
+
+
+        socket.on("broadcast-group",function(data){
+            var pastDateTime = datetime.create();
+            var now = pastDateTime.format("Y-m-d H:M:S")
+           
+            let user_id = data.user_id
+            data['created_at'] = now.toString()
+            
+            console.log(data);
+            
+            
+            function checkGroup(to_id)
+            {
+                // console.log("user id" + data.user_id);
+                
+                let sql_check_group_message = `SELECT * FROM group_message WHERE from_id=${data.user_id} AND to_id=${to_id} OR  from_id=${to_id} AND to_id=${data.user_id} LIMIT 1`
+                let sql = new Promise(function(resolve,reject){
+                    con.query(sql_check_group_message,function(err,result){
+                        if(err) console.log(err); 
+                         resolve(result)
+                        //  console.log("data adalah" + result[0]);
+                         
+                    })
+                })
+
+                return sql
+                
+            }
+
+            function insertGroup(from_id,to_id)
+            {
+                let sql_input = {
+                    from_id:from_id,
+                    to_id:to_id
+                }
+                let sql = `INSERT INTO group_message SET ?`
+                let promise_sql = new Promise(function(resolve,reject){
+                    con.query(sql,sql_input,function(err,result){
+                        if(err) console.log(err);
+                        
+                        
+                    })
+                })
+                let get_data = `SELECT * FROM group_message ORDER BY id DESC LIMIT 1`
+
+                let get_id = new Promise(function(resolve,reject){
+                    con.query(get_data,function(err,result){
+                        if(err) console.log(err);
+                        
+                        resolve(result)
+                    })
+                })
+
+                return get_id
+            }
+
+            function getGroup(from_id,to_id)
+            {
+                let sql = `SELECT * FROM group_message WHERE from_id=${from_id} AND to_id=${to_id} OR from_id=${to_id} AND to_id=${from_id}`
+
+                let sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,function(err,result){
+                        if(err)console.log(err);
+                        
+                        if(result[0] != undefined){
+                            
+                            return resolve(result)
+                        }else {
+                            result[0] = undefined
+                            return resolve(result)
+                        }
+                    })
+                })
+
+                return sql_promise
+            }
+
+            function insertMessage(from_id,to_id,group_id,message)
+            {
+                var pastDateTime = datetime.create();
+                var now = pastDateTime.format("Y-m-d H:M:S")
+                let sql_input = {
+                    user_id:from_id,
+                    to_id:to_id,
+                    group_id:group_id,
+                    message:message,
+                    is_exist_file:data.is_exist_file,
+                }
+                if(data.base64_field){
+                    function makeid() {
+                        var text = "";
+                        var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+                      
+                        for (var i = 0; i < 5; i++)
+                          text += possible.charAt(Math.floor(Math.random() * possible.length));
+                      
+                        return text;
+                      }
+                    let path_file = `${__dirname}/storage/public/users/${data.username}/chat`
+                    if(!fs.existsSync(path_file)){
+                        fs.mkdirSync(path_file)
+                    }
+                    let name = makeid()
+                    let full_path = `${__dirname}/storage/public/users/${data.username}/chat/${name}.png`
+                    fs.writeFileSync(full_path,data.base64_field,{encoding:'base64'}),
+                    sql_input['path_file'] = full_path
+
+                }   
+                var sql_promise
+                let sql = `INSERT INTO chat SET ?`
+                let insert_count_message = `UPDATE  group_message SET count_message = count_message + 1 WHERE id=${group_id}`
+                con.query(insert_count_message,function(err,result){
+                    if(err)console.log(err);
+                    
+                })
+                sql_promise = new Promise(function(resolve,reject){
+                    con.query(sql,sql_input,function(err,result){
+                        if(err) console.log(err);
+                    
+                        
+                        resolve(result)
+                    })
+                })
+
+                return sql_promise
+            }
+
+            async function send(to_id)
+            {
+                
+                
+                let check_group = await checkGroup(to_id);
+                
+                
+                if(data.message == undefined){
+                    
+                    data.message = ''
+                }
+                let message;
+               if(check_group[0] == undefined){
+                    let insert_group = await insertGroup(data.user_id,to_id);
+                    let insert_message = await insertMessage(data.user_id,to_id,insert_group[0].id,data.message)
+                    data['group_id'] = insert_group[0].id
+                    // console.log(insert_message);
+                    message = insert_message
+                    data['id'] = message.insertId;
+                    data['to_id'] = to_id
+                    data['username'] = data['username']
+                    data['message'] = data['message']
+                    data['from_id'] = data.user_id
+                    data['is_exist_file'] = data['is_exist_file']
+                    data['chat_id'] = message.insertId;
+                    
+            
+                    console.log(data);
+                    
+                    IO.sockets.emit(`receive-${data.group_id}`,data)
+                    
+                    IO.sockets.emit(`notification-${to_id}`,data) 
+                    return   
+                }else if(check_group[0] != undefined){
+                    let get_group = await getGroup(data.user_id,to_id)
+                    data['group_id'] = get_group[0].id                   
+                    let insert_message = await insertMessage(data.user_id,to_id,get_group[0].id,data.message)                    
+                    // console.log(insert_message);
+                   message = insert_message
+                   data['id'] = message.insertId;
+                    data['to_id'] = to_id
+                    data['username'] = data['username']
+                    data['message'] = data['message']
+                    data['from_id'] = data.user_id
+                    data['is_exist_file'] = data['is_exist_file']
+                    
+                    data['chat_id'] = message.insertId;
+                    
+            
+                    console.log(data);
+                    
+                    IO.sockets.emit(`receive-${data.group_id}`,data)
+                    
+                    IO.sockets.emit(`notification-${to_id}`,data)  
+                    return  
+                }
+
+                            
+            } 
+
+            function group(group_id)
+            {
+                let sql = `SELECT group_relation_message.user_id, group_message_figure.user_id AS figure_id  FROM group_message_figure INNER JOIN group_relation_message ON  group_message_figure.id = group_relation_message.group_id WHERE group_message_figure.user_id = ${data.user_id} AND group_relation_message.group_id = ${group_id}`
+                con.query(sql,function(err,result){
+                    if(err) console.log(err);
+                    
+                    
+                   for(let results in result){
+                        send(result[results].user_id)
+                   }
+                })
+            }
+
+            async function execute()
+            {
+                let group_id = data.group_id
+                if(group_id.isArray)
+                {
+                    for (let index = 0; index < group_id.length; index++) {
+                        group(group_id[index])
+                        console.log("group id di if nya adalah " + group_id[index]);    
+                    }
+                }else{
+                    group(group_id)
+                    console.log("group id di else nya adalah " + group_id)   
+
+                }
+                
+            }
+
+
+
+            execute()
+                .catch(function(err){
+                    console.log(err);
+                    
+                })
+               
+        })  
+    })
+})

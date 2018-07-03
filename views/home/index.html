@@ -1,0 +1,62 @@
+{% extends "../index.html" %}
+{% block body %}
+<style>
+    nav{    background-color:#e54304;
+    }
+</style>
+  <div class="container">
+      <div class="row">
+          <!-- navbar -->
+          <nav class="navbar navbar-expand-lg navbar-light " style="width:100%; color: #fff;">
+            <a class="navbar-brand" href="#" style="color:#fff;">Home</a>
+            <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+              <span class="navbar-toggler-icon"></span>
+            </button>    
+            <div class="collapse navbar-collapse" id="navbarSupportedContent">
+              <ul class="navbar-nav mr-auto my-2 my-lg-0">
+                <li class="nav-item" style="text-align: center;">
+                  <a class="nav-link " href="{{url('logout')}}" style="color: #fff;">Logout</a>
+                </li>
+              </ul>
+            </div>
+          </nav>
+      </div>
+  </div>
+  <div class="grey">
+        <div class="container">
+            <div class="row">
+                <div class="col-sm" style="text-align:center;">
+                    <img src="{{url('assets/images/skin.jpg')}}" class="img-thumbnail" alt="">
+                    <h4 style="color:#e54304;">Selamat datang</h4>
+                    <h4><strong>" {{Auth.user().nama_lengkap}} "</strong></h4>
+                </div>
+            </div>
+        </div>
+  </div>
+  <div class="container">
+      <div class="row" style="padding:10px; color: #fff">
+          <div class="col-6" >
+              <div class="menu-list" style="padding:7%;" >
+                  <a href="{{url('masukan-gejala')}}" >Masukan gejala</a>
+              </div>
+          </div>
+          <div class="col-6" >
+                <div class="menu-list" style="padding:10%; ">
+                    <a href="">Data Penyakit</a>
+                </div>
+          </div>
+      </div>
+      <div class="row" style="padding:10px; color: #fff">
+            <div class="col-6" >
+                <div class="menu-list" style="padding:10%; ">
+                    <a href="">Info panduan</a>
+                </div>
+            </div>
+            <div class="col-6" >
+                <div class="menu-list" style="padding:10%; ">
+                    <a href="">Profile</a>
+                </div>
+            </div>
+      </div>
+  </div>
+{% endblock %}

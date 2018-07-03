@@ -1,0 +1,87 @@
+{% extends "../index.html" %}
+{% block body %}
+<style>
+    nav{    background-color:#e54304;
+    }
+</style>
+  <div class="container">
+      <div class="row">
+          <!-- navbar -->
+          <nav class="navbar navbar-expand-lg navbar-light " style="width:100%; color: #fff;">
+            <a class="navbar-brand" href="#" style="color:#fff;">Diagnosa</a>
+            <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+              <span class="navbar-toggler-icon"></span>
+            </button>    
+            <div class="collapse navbar-collapse" id="navbarSupportedContent">
+              <ul class="navbar-nav mr-auto my-2 my-lg-0">
+                <li class="nav-item" style="text-align: center;">
+                  <a class="nav-link " href="{{url('logout')}}" style="color: #fff;">Logout</a>
+                </li>
+              </ul>
+            </div>
+          </nav>
+      </div>
+  </div>
+  <div class="grey">
+        <div class="container">
+            <div class="row">
+                <div class="col-sm" style="text-align:center;">
+                    <table class="table table-default">
+                        <thead>
+                            <tr>
+                                <th>Nama</th>
+                                <th>:</th>
+                                <th>Ryan Eka</th>
+                            </tr>
+                            <tr>
+                                <th>Umur</th>
+                                <th>:</th>
+                                <th>8 Tahun</th>
+                            </tr>
+                        </thead>
+                    </table>
+                </div>
+            </div>
+        </div>
+  </div>
+  <div class="container">
+        <div class="row" style="padding:10px;">
+            <div class="col">
+                <h5>Dari hasil diagnosa anda memiliki penyakit seperti berikut :</h5>
+            </div>            
+        </div>
+        <div class="row">
+            <div class="col">
+                <div class="panel-primary">
+                    <div class="panel-body" style="border:1px solid #e54304; border-radius:4px; padding:5px;">
+                        <table class="table table-striped">
+                            <tr>
+                                <th>Kode Penyakit</th>
+                                <td>:</td>
+                                <td>{{data.idkon}}</td>
+                            </tr>
+                            <tr>
+                                <th>Gejala</th>
+                                <td>:</td>
+                                <td>{{data.namagejala}}</td>
+                            </tr>
+                            <tr>
+                                <th>Nama Penyakit</th>
+                                <td>:</td>
+                                <td><strong style="color: #e54304;">{{data.namapenyakit}}</strong></td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+  </div>
+  <script>
+      function selected(id)
+      {
+          console.log(id);
+          
+          document.getElementById(id).checked = true
+      }
+  </script>
+{% endblock %}
